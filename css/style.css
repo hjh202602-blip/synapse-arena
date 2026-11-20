@@ -206,6 +206,8 @@ select.sel, input.sel, textarea.sel { background: var(--surface); border: 1px so
 .play-head { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .play-head h2 { font-size: 20px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .play-head .goal { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; min-width: 200px; }
+/* 긴 목표 글은 줄을 바꿔 화면 밖으로 넘치지 않게 */
+.play-head .goal .chip { display: inline-block; white-space: normal; max-width: 100%; border-radius: 12px; }
 .stage-nav { display: inline-flex; gap: 6px; margin-right: 6px; }
 .play-grid { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(400px, 1fr); gap: 18px; align-items: start; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 0; flex-wrap: wrap; }
@@ -441,3 +443,131 @@ canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: no
 #view-play.rl-layout .chart-wrap { max-width: 900px; }
 #view-play.rl-layout canvas.brain { height: 460px !important; aspect-ratio: auto !important; }
 #view-play.rl-layout .brief { max-height: none !important; }
+
+/* ---------- 6장: 점 그래프 ---------- */
+.plot-wrap { display: flex; justify-content: center; }
+#plotCanvas { width: min(100%, 460px); aspect-ratio: 1 / 1; border-radius: 10px; cursor: pointer; display: block; }
+.plot-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); align-items: center; }
+.plot-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.plot-legend .pt { width: 11px; height: 11px; border-radius: 50%; display: inline-block; border: 1.5px solid #14161a; }
+.plot-legend .pt.o { background: #ffa94d; }
+.plot-legend .pt.b { background: #5aa9ff; }
+.plot-legend .pt.bad { background: transparent; border: 2.5px solid #ff4d5e; }
+.plot-legend .pt.sq { border-radius: 2px; background: var(--faint); }
+.plot-acc { font-size: 13.5px; }
+.plot-acc b { color: var(--text); font-family: var(--mono); }
+
+/* ---------- 7장: 필터 편집기 ---------- */
+#view-play .vision-left { flex: 1; min-height: 0; }
+.vision-left { padding: 12px 16px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.vl-head h3 { font-size: 15px; margin-bottom: 2px; }
+.vl-head .muted { font-size: 13px; }
+.filter-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.filter-card { flex: 1 1 220px; padding: 14px 16px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+.filter-card h4 { font-size: 14px; display: flex; gap: 8px; align-items: baseline; }
+.filter-card h4 .muted { font-size: 12px; font-weight: 500; }
+.fgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; width: min(100%, 200px); align-self: center; }
+.fcell { aspect-ratio: 1 / 1; border-radius: 7px; border: 1px solid var(--line-2); background: var(--surface); color: var(--faint); font: 600 15px var(--mono); cursor: pointer; user-select: none; transition: background .12s, border-color .12s; }
+.fcell:hover { border-color: var(--line-3); }
+.fcell.pos { background: var(--exc-soft); border-color: var(--exc); color: var(--exc); }
+.fcell.neg { background: var(--inh-soft); border-color: var(--inh); color: var(--inh); }
+.filter-card .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.fb-wrap { display: inline-flex; align-items: center; gap: 8px; }
+.fb-wrap input[type="range"] { width: 120px; }
+.fb-wrap .wval { font-family: var(--mono); font-size: 13px; color: var(--text); min-width: 34px; text-align: right; }
+.out-card { flex-basis: 100%; }
+
+/* ---------- 7장: 그림과 특징 맵 ---------- */
+.vlist { display: flex; flex-direction: column; gap: 8px; }
+.vrow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); flex-wrap: wrap; }
+.vrow.bad { border-color: var(--inh-line); }
+.vrow .mark { margin-left: auto; font-weight: 700; font-size: 16px; width: 24px; text-align: center; }
+.vrow.ok .mark { color: var(--ok); }
+.vrow.bad .mark { color: var(--inh); }
+.vimg, .vmap { display: grid; gap: 2px; padding: 4px; border-radius: 6px; background: #14161a; }
+.vimg { width: 84px; }
+.vmap { width: 72px; }
+.vmap.sm { width: 56px; }
+.vimg i, .vmap i { aspect-ratio: 1 / 1; border-radius: 2px; background: #2a2f38; display: block; }
+.vimg i.on { background: #e9e5dd; }
+.vmap i { background: rgba(244, 201, 93, calc(0.08 + var(--v, 0) * 0.35)); }
+.vmap i.on { background: rgba(244, 201, 93, calc(0.55 + var(--v, 0) * 0.45)); }
+.vmap i.tg { box-shadow: inset 0 0 0 2px #f4c95d; }
+.varrow { color: var(--faint); font-size: 13px; white-space: nowrap; }
+.vcol { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.vpool { color: var(--muted); font-size: 12px; }
+.vpool b, .vout b { font-family: var(--mono); color: var(--text); }
+.vout { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; min-width: 64px; }
+.vout b { font-size: 16px; }
+@media (max-width: 560px) {
+  .vimg { width: 66px; } .vmap { width: 58px; } .vmap.sm { width: 46px; }
+  .fb-wrap input[type="range"] { width: 96px; }
+}
+
+/* ---------- 8장: 시간표 ---------- */
+.seq-list { display: flex; flex-direction: column; gap: 10px; }
+.seq { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
+.seq.bad { border-color: var(--inh-line); }
+.seq .mark { font-weight: 700; font-size: 16px; width: 22px; text-align: center; }
+.seq.ok .mark { color: var(--ok); }
+.seq.bad .mark { color: var(--inh); }
+.seq-grid { flex: 1; display: grid; gap: 3px; align-items: center; min-width: 0; }
+.seq-lbl { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.seq-lbl.mem { color: #c4613f; }
+.seq-t { font-size: 11px; color: var(--faint); text-align: center; font-family: var(--mono); }
+.seq-tg { font-family: var(--mono); font-size: 13px; font-weight: 700; text-align: center; color: var(--text); }
+.seq-cell { height: 28px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--surface-2); font: 600 12.5px var(--mono); color: var(--muted); cursor: pointer; padding: 0; min-width: 0; }
+.seq-cell.in.on { background: var(--exc-soft); border-color: var(--exc); color: var(--exc); }
+.seq-cell.mem.on { background: #fbe3d9; border-color: #e08a68; color: #a5482a; }
+.seq-cell.out.on { background: #e2f1e3; border-color: var(--ok); color: var(--ok); }
+.seq-cell.bad { box-shadow: inset 0 0 0 2px var(--inh); color: var(--inh); }
+.seq-cell.sel { outline: 2px solid var(--gold); outline-offset: 1px; }
+:root[data-theme="dark"] .seq-lbl.mem { color: #f59f80; }
+:root[data-theme="dark"] .seq-cell.mem.on { background: rgba(245,159,128,.18); color: #f59f80; border-color: #f59f80; }
+:root[data-theme="dark"] .seq-cell.out.on { background: rgba(126,224,129,.15); color: #7ee081; border-color: #7ee081; }
+
+/* ---------- 9장: 무리 짓기 ---------- */
+#kmCanvas { width: min(100%, 460px); aspect-ratio: 1 / 1; border-radius: 10px; display: block; touch-action: none; }
+.km-steps { margin: 0; padding-left: 20px; font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.km-steps b { color: var(--text); margin-right: 4px; }
+.km-note { font-size: 12.5px; margin: 8px 0 0; }
+.km-neuron p { font-size: 13px; margin: 0; }
+#kSeg button { min-width: 36px; }
+.elbow h4 { font-size: 14px; margin-bottom: 8px; }
+.elbow h4 .muted { font-size: 12px; font-weight: 500; }
+.elbow-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; height: 120px; align-items: end; }
+.elbow-bars .eb { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 3px; }
+.elbow-bars em { font-style: normal; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.elbow-bars .bar { width: 70%; max-width: 40px; border-radius: 5px 5px 0 0; background: var(--accent); min-height: 3px; }
+.elbow-bars .bar.empty { background: transparent; border: 1px dashed var(--line-2); border-bottom: 0; }
+.elbow-bars b { font-size: 12px; font-weight: 600; color: var(--muted); }
+.elbow-bars .eb.cur b { color: var(--accent); }
+
+/* ---------- 10장: 코드 지도 ---------- */
+table.truth td.c-code, table.truth th.c-code { font-family: var(--mono); font-size: 13px; color: var(--hidden); white-space: nowrap; border-left: 1px solid var(--line); }
+table.truth.many td.c-in, table.truth.many td.c-t { width: auto; letter-spacing: 2px; white-space: nowrap; }
+table.truth.many th { white-space: nowrap; }
+.mbars { display: flex; gap: 4px; }
+.mb { position: relative; width: 34px; height: 30px; border-radius: 5px; border: 1px solid var(--line-2); background: var(--surface-2); overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.mb i { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(46, 109, 176, 0.18); }
+.mb.on i { background: rgba(63, 127, 75, 0.35); }
+.mb.bad { border-color: var(--inh); box-shadow: inset 0 0 0 1px var(--inh); }
+.mb em { position: relative; font-style: normal; font: 600 11px var(--mono); color: var(--text); }
+.code-map h4 { font-size: 14px; margin-bottom: 8px; }
+.code-map h4 .muted { font-size: 12px; font-weight: 500; }
+#codeMap { width: min(100%, 420px); display: block; border-radius: 10px; }
+
+/* 좁은 화면: 시간표·압축 표가 패널 밖으로 넘치지 않게 */
+.seq-grid { grid-template-columns: 76px repeat(var(--n, 7), minmax(30px, 1fr)); }
+.table-scroll { overflow-x: auto; }
+@media (max-width: 560px) {
+  .seq { padding: 8px; gap: 6px; }
+  .seq-grid { grid-template-columns: 50px repeat(var(--n, 7), minmax(22px, 1fr)); gap: 2px; }
+  .seq-cell { height: 24px; font-size: 11px; }
+  .seq-lbl { font-size: 11px; white-space: normal; line-height: 1.2; }
+  .mbars { gap: 2px; }
+  .mb { width: 24px; height: 26px; }
+  .mb em { font-size: 9px; }
+  table.truth.many td, table.truth.many th { padding: 8px 5px; }
+  table.truth td.c-code { font-size: 11px; }
+}

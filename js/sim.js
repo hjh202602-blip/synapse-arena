@@ -41,13 +41,22 @@
     { id: 'inA',    name: '입력 A',   group: 'input',  desc: '진리표의 A 칸. 0(꺼짐) 아니면 1(켜짐).' },
     { id: 'inB',    name: '입력 B',   group: 'input',  desc: '진리표의 B 칸. 0(꺼짐) 아니면 1(켜짐).' },
     { id: 'inC',    name: '입력 C',   group: 'input',  desc: '진리표의 C 칸. 0(꺼짐) 아니면 1(켜짐).' },
+    { id: 'inX',    name: 'x 좌표',   group: 'input',  desc: '점의 가로 위치. 왼쪽 끝 0 ~ 오른쪽 끝 1.' },
+    { id: 'inY',    name: 'y 좌표',   group: 'input',  desc: '점의 세로 위치. 아래 끝 0 ~ 위 끝 1.' },
+    { id: 'inD',    name: '입력 D',   group: 'input',  desc: '진리표의 D 칸. 0(꺼짐) 아니면 1(켜짐).' },
+    { id: 'mem1',   name: '기억 1',   group: 'memory', desc: '히든 1이 바로 전 칸(한 순간 전)에 낸 값. 뇌가 자기 생각을 다음 순간의 자신에게 돌려보내는 되먹임이다.' },
+    { id: 'mem2',   name: '기억 2',   group: 'memory', desc: '히든 2가 바로 전 칸에 낸 값.' },
+    { id: 'memO',   name: '출력 기억', group: 'memory', desc: '출력이 바로 전 칸에 낸 값. 출력이 자기 자신에게 되돌아온다.' },
   ];
   const MOTORS = [
     { id: 'motorL', name: '왼바퀴', desc: '값이 클수록 왼쪽 바퀴가 빨리 돈다. 왼쪽이 더 빠르면 오른쪽으로 돈다.' },
     { id: 'motorR', name: '오른바퀴', desc: '값이 클수록 오른쪽 바퀴가 빨리 돈다. 오른쪽이 더 빠르면 왼쪽으로 돈다.' },
     { id: 'out', name: '출력', desc: '뇌의 답. 0.5 이상이면 1(켜짐), 0.5 아래면 0(꺼짐)으로 읽는다.' },
     { id: 'out2', name: '출력 2', desc: '두 번째 답. 읽는 법은 출력과 같다.' },
+    { id: 'out3', name: '출력 3', desc: '세 번째 답. 읽는 법은 출력과 같다.' },
+    { id: 'out4', name: '출력 4', desc: '네 번째 답. 읽는 법은 출력과 같다.' },
   ];
+  const OUT_IDS = ['out', 'out2', 'out3', 'out4'];
   const SENSOR_IDS = SENSORS.map((s) => s.id);
   const MAX_SYNAPSE_W = 3;
   // 바퀴 뉴런은 1을 넘을 수 있다. 실제 속도는 두 바퀴의 비율을 지킨 채 최고 속도(1)에 맞춘다.
@@ -115,7 +124,7 @@
   }
   function compileBrain(brain) {
     const hidden = (brain && brain.hidden ? brain.hidden : []).map((h) => h.id);
-    const outs = hidden.concat(['motorL', 'motorR', 'out', 'out2']);
+    const outs = hidden.concat(['motorL', 'motorR'], OUT_IDS);
     const fnMap = Object.create(null);
     for (const id of outs) { const f = brain && brain.fn && brain.fn[id]; fnMap[id] = FUNCS[f] ? f : 'clamp'; }
     const soft = outs.filter((id) => fnMap[id] === 'softmax');
@@ -593,6 +602,47 @@
     return improved;
   }
 
+  // ---- 그림을 보는 뇌(합성곱) -----------------------------------------------------
+  // 그림 = 문자열 줄 목록('#' = 켜진 칸). 필터 = 3×3 가중치 9개(w) + 편향(b).
+  // 특징 맵의 한 칸 = 필터를 그림 위 3×3 자리에 겹쳐 놓고 (칸 값 × 가중치)를 모두 더한 값 + 편향, 0~1로 자른다.
+  function parseImg(rows) {
+    const h = rows.length, w = rows[0].length, px = [];
+    for (const r of rows) for (const ch of r) px.push(ch === '#' ? 1 : 0);
+    return { w, h, px };
+  }
+  function convMap(img, f) {
+    const mw = img.w - 2, mh = img.h - 2, vals = [];
+    for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) {
+      let sum = f.b || 0;
+      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) sum += img.px[(y + dy) * img.w + (x + dx)] * (f.w[dy * 3 + dx] || 0);
+      vals.push(clamp(sum, 0, 1));
+    }
+    return { w: mw, h: mh, vals };
+  }
+  const maxPool = (map) => map.vals.reduce((m, v) => (v > m ? v : m), 0);
+  // 실험 한 판 채점. mode 'map': 특징 맵의 켜짐/꺼짐이 목표와 같아야 함. mode 'class': 풀링 → 출력이 정답과 같아야 함.
+  function evalVision(cfg, design) {
+    const imgs = cfg.images.map(parseImg);
+    const items = imgs.map((img, k) => {
+      if (cfg.mode === 'class') {
+        const maps = design.filters.map((f) => convMap(img, f));
+        const pools = maps.map(maxPool);
+        const o = design.out || { w: [], b: 0 };
+        const y = clamp(pools.reduce((a, v, i) => a + v * (o.w[i] || 0), o.b || 0), 0, 1);
+        return { img, maps, pools, y, ok: (y >= 0.5 ? 1 : 0) === cfg.labels[k] };
+      }
+      const map = convMap(img, design.filters[0]);
+      const target = convMap(img, cfg.reference.filters[0]).vals.map((v) => (v >= 0.5 ? 1 : 0));
+      const ok = map.vals.every((v, i) => (v >= 0.5 ? 1 : 0) === target[i]);
+      return { img, maps: [map], target, ok };
+    });
+    return { items, ok: items.every((it) => it.ok) };
+  }
+  function visionStats(design) {
+    const ws = [].concat(...design.filters.map((f) => f.w));
+    return { cells: ws.filter((v) => v).length, unitFilter: ws.every((v) => v === 0 || Math.abs(v) === 1) };
+  }
+
   // 별 조건 계산: [성공, 조건2, 조건3]
   function evalStars(stage, world, brain) {
     const ok = world.status === 'success';
@@ -601,10 +651,13 @@
     return res;
   }
   // 실제로 "거쳐 간" 히든 뉴런 수: 들어오는 선과 나가는 선이 모두 있는 것만 센다
+  // 기억 실험에서는 히든 뉴런의 값이 기억 뉴런(되먹임)으로 나가는 것도 "나가는 선"으로 친다
   function usedHidden(brain) {
     const syn = brain.synapses || [];
-    return (brain.hidden || []).filter((h) => syn.some((s) => s.to === h.id) && syn.some((s) => s.from === h.id)).length;
+    const outOf = (id) => syn.some((s) => s.from === id || (MEM_SRC_OF[s.from] === id));
+    return (brain.hidden || []).filter((h) => syn.some((s) => s.to === h.id) && outOf(h.id)).length;
   }
+  const MEM_SRC_OF = { mem1: 'h1', mem2: 'h2' };
   function checkCond(cond, world, brain) {
     const syn = (brain.synapses || []).length, hid = usedHidden(brain);
     if (cond.type === 'synapses') return syn <= cond.max;
@@ -617,6 +670,12 @@
     if (cond.type === 'unitWeights') return (brain.synapses || []).every((s) => Math.abs(Math.abs(s.w) - 1) < 1e-9);
     if (cond.type === 'gens') return world.gens <= cond.max;
     if (cond.type === 'rules') return (world.rules || 0) <= cond.max;
+    if (cond.type === 'testAcc') return (world.testAcc || 0) >= cond.min - 1e-9;
+    if (cond.type === 'cells') return (world.cells || 0) <= cond.max;
+    if (cond.type === 'unitFilter') return !!world.unitFilter;
+    if (cond.type === 'inertia') return world.inertia != null && world.inertia <= cond.max + 1e-9;
+    if (cond.type === 'kmSteps') return (world.steps || 0) <= cond.max;
+    if (cond.type === 'kTried') return (world.kTried || 0) >= cond.min;
     return false;
   }
   function condText(cond) {
@@ -630,6 +689,12 @@
     if (cond.type === 'unitWeights') return '가중치는 +1과 -1만 쓰기';
     if (cond.type === 'gens') return `${cond.max}세대 안에 배우기`;
     if (cond.type === 'rules') return `점수 규칙 ${cond.max}개 이하로`;
+    if (cond.type === 'testAcc') return `시험 데이터 ${Math.round(cond.min * 100)}% 맞히기`;
+    if (cond.type === 'cells') return `필터 칸 ${cond.max}개 이하로 쓰기`;
+    if (cond.type === 'unitFilter') return '필터 값은 +1·-1만 쓰기';
+    if (cond.type === 'inertia') return `거리 합 ${cond.max.toFixed(2)} 이하로 묶기`;
+    if (cond.type === 'kmSteps') return cond.max === 0 ? '한 걸음 버튼 없이 손으로만' : `${cond.max}걸음 안에`;
+    if (cond.type === 'kTried') return `무리 수를 ${cond.min}가지 이상 써 보기`;
     return '';
   }
 
@@ -659,21 +724,27 @@
   function trainEpoch(cfg, brain, lr) {
     const hidden = (brain.hidden || []).map((h) => h.id);
     let loss = 0;
+    const ins = cfg.inputs || ['inA', 'inB'];
+    const outs = cfg.outputs || ['out'];
     for (const row of cfg.rows) {
-      const inp = { bias: 1, inA: row[0], inB: row[1] };
+      const inp = { bias: 1 };
+      ins.forEach((id, k) => { inp[id] = row[k]; });
       // 앞으로 계산
       const act = Object.assign({}, inp);
       const sumOf = (id) => brain.synapses.filter((s) => s.to === id).reduce((a, s) => a + (act[s.from] || 0) * s.w, 0);
       const pre = {};
       for (const h of hidden) { pre[h] = sumOf(h); act[h] = clamp(pre[h], 0, 1); }
-      pre.out = sumOf('out');
-      act.out = clamp(pre.out, 0, 1);
-      const err = row[2] - act.out;
-      loss += err * err;
-      // 뒤로: 출력의 오차를 히든 뉴런에 나눠 준다(출력은 잘려도 학습 신호는 흘려 보낸다)
-      const delta = { out: err };
+      // 뒤로: 출력마다 오차를 구해 히든 뉴런에 나눠 준다(출력은 잘려도 학습 신호는 흘려 보낸다)
+      const delta = {};
+      outs.forEach((o, k) => {
+        pre[o] = sumOf(o);
+        act[o] = clamp(pre[o], 0, 1);
+        const err = row[ins.length + k] - act[o];
+        loss += err * err;
+        delta[o] = err;
+      });
       for (const h of hidden) {
-        const back = brain.synapses.filter((s) => s.from === h && s.to === 'out').reduce((a, s) => a + s.w * err, 0);
+        const back = brain.synapses.filter((s) => s.from === h && delta[s.to] !== undefined && outs.includes(s.to)).reduce((a, s) => a + s.w * delta[s.to], 0);
         delta[h] = pre[h] > 0 && pre[h] < 1 ? back : 0;
       }
       for (const s of brain.synapses) {
@@ -681,10 +752,76 @@
         if (d) s.w = clamp(s.w + lr * d * (act[s.from] || 0), -MAX_SYNAPSE_W, MAX_SYNAPSE_W);
       }
     }
-    return loss / cfg.rows.length;
+    return loss / (cfg.rows.length * outs.length);
   }
   function lossOf(cfg, brain) {
-    return cfg.rows.reduce((a, r) => { const e = r[2] - evalRow(brain, r, cfg).y; return a + e * e; }, 0) / cfg.rows.length;
+    const k = (cfg.inputs || ['inA', 'inB']).length, outs = cfg.outputs || ['out'];
+    return cfg.rows.reduce((a, r) => { const ys = evalRow(brain, r, cfg).ys; return a + ys.reduce((b, y, j) => b + (r[k + j] - y) ** 2, 0); }, 0) / (cfg.rows.length * outs.length);
+  }
+
+  // ---- 시간 순서(기억 실험, 순환 신경망) ------------------------------------------
+  // seqs: [{ x: [입력...], t: [목표...] }]. 칸마다 기억 뉴런에 바로 전 칸의 값을 넣는다.
+  // 목표가 null인 칸은 채점하지 않는다.
+  const MEM_SRC = { mem1: 'h1', mem2: 'h2', memO: 'out' };
+  function evalSeq(cfg, brain) {
+    const rt = compileBrain(brain);
+    const seqs = cfg.seqs.map((sq) => {
+      for (const id in rt.act) rt.act[id] = 0; // 새 순서: 기억을 비우고 시작
+      const steps = sq.x.map((x, t) => {
+        const inp = { bias: 1, inA: x };
+        for (const m in MEM_SRC) inp[m] = rt.act[MEM_SRC[m]] || 0;
+        rt.step(inp);
+        const y = rt.act.out, target = sq.t[t];
+        return { x, y, target, ok: target == null || (y >= 0.5 ? 1 : 0) === target, act: Object.assign({}, rt.act) };
+      });
+      return { steps, ok: steps.every((st) => st.ok) };
+    });
+    return { seqs, ok: seqs.every((q) => q.ok) };
+  }
+
+  // ---- 무리 짓기(비지도 학습, k-평균) -------------------------------------------
+  // 점 = [x, y, 진짜 무리 번호]. 진짜 무리 번호는 채점에만 쓰고 화면에는 보여 주지 않는다.
+  const d2 = (p, c) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2;
+  function kmAssign(pts, cs) {
+    return pts.map((p) => { let b = 0, bd = Infinity; cs.forEach((c, k) => { const d = d2(p, c); if (d < bd - 1e-12) { bd = d; b = k; } }); return b; });
+  }
+  // 한 걸음 = 묶기(가장 가까운 중심) → 옮기기(자기 무리의 평균으로). 점이 하나도 없는 중심은 그대로.
+  function kmStep(pts, cs) {
+    const a = kmAssign(pts, cs);
+    return cs.map((c, k) => {
+      const mine = pts.filter((_, i) => a[i] === k);
+      if (!mine.length) return c.slice();
+      return [mine.reduce((s, p) => s + p[0], 0) / mine.length, mine.reduce((s, p) => s + p[1], 0) / mine.length];
+    });
+  }
+  function kmInertia(pts, cs) {
+    const a = kmAssign(pts, cs);
+    return pts.reduce((s, p, i) => s + d2(p, cs[a[i]]), 0);
+  }
+  const kmConverged = (pts, cs) => kmStep(pts, cs).every((c, k) => Math.abs(c[0] - cs[k][0]) < 1e-4 && Math.abs(c[1] - cs[k][1]) < 1e-4);
+  // 진짜 무리와 같게 나뉘었나(번호는 달라도 된다): 진짜 무리 ↔ 중심이 한 쌍씩 맞아야 한다
+  function kmMatches(pts, cs) {
+    const a = kmAssign(pts, cs);
+    const groups = new Set(pts.map((p) => p[2]));
+    if (groups.size !== cs.length) return false;
+    const map = new Map(), used = new Map();
+    for (let i = 0; i < pts.length; i++) {
+      const t = pts[i][2];
+      if (!map.has(t)) { if (used.has(a[i])) return false; map.set(t, a[i]); used.set(a[i], t); } else if (map.get(t) !== a[i]) return false;
+    }
+    return true;
+  }
+  // 멈출 때까지 걷기(최대 50걸음)
+  function kmRun(pts, cs, max = 50) {
+    let c = cs.map((x) => x.slice()), n = 0;
+    while (n < max && !kmConverged(pts, c)) { c = kmStep(pts, c); n++; }
+    return { centers: c, steps: n };
+  }
+  // 진짜 무리의 평균에 중심을 두었을 때의 거리 합(가장 잘 묶은 값의 기준)
+  function kmBest(pts) {
+    const ids = [...new Set(pts.map((p) => p[2]))];
+    const cs = ids.map((g) => { const m = pts.filter((p) => p[2] === g); return [m.reduce((s, p) => s + p[0], 0) / m.length, m.reduce((s, p) => s + p[1], 0) / m.length]; });
+    return kmInertia(pts, kmRun(pts, cs).centers);
   }
 
   SA.sim = {
@@ -693,7 +830,9 @@
     clamp, angDiff, makeRng,
     compileBrain, mirrorBrain, createWorld, step, runHeadless, lurePos,
     evalStars, condText, checkCond, usedHidden,
-    evalRow, evalLogic, trainEpoch, lossOf,
+    evalRow, evalLogic, trainEpoch, lossOf, OUT_IDS, MEM_SRC, evalSeq,
+    kmAssign, kmStep, kmInertia, kmConverged, kmMatches, kmRun, kmBest,
+    parseImg, convMap, maxPool, evalVision, visionStats,
     REWARD_EVENTS, rlPairs, rlBrain, rlBuild, runEpisode, objectiveOk, rlInit, rlGeneration,
   };
 })();

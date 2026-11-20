@@ -3,6 +3,7 @@
 // 1) 모든 실험이 모범 답안 뇌로 풀리는지  2) 빈 뇌·쉬운 꼼수로는 안 풀리는지
 // 3) 별 조건을 모범 답안이 달성하는지     4) 결정론(같은 입력 → 같은 결과)
 // 5) 대결 모드에서 라이벌끼리 겨뤄 난이도 순서가 맞는지
+// 6) 0~10장 모든 실험이 "정답 보기" 답으로 별 3개, 빈 답으로는 실패하는지  7) 힌트에 적은 수치가 맞는지
 'use strict';
 const path = require('path');
 require(path.join(__dirname, '..', 'js', 'sim.js'));
@@ -173,5 +174,119 @@ for (const st of TRAIN_STAGES) {
   }
 }
 check(trainRun(TRAIN_STAGES[1], 3) === null, 'T2 학습률 3은 너무 커서 못 배움(힌트와 일치)');
+
+// ===================================================================
+// 모든 장: "정답 보기"와 같은 답으로 풀리고 별 3개를 받는지, 빈 답으로는 안 풀리는지
+// ===================================================================
+const ALL = content.STAGES;
+const pass = (cfg, wl, brain) => sim.evalStars(cfg, wl, brain);
+const allStars = (arr) => arr.every(Boolean);
+const emptyB = () => ({ hidden: [], synapses: [] });
+const fixedIds = (st) => Array.from({ length: st.fixedHidden || 0 }, (_, i) => 'h' + (i + 1));
+const usesAllowed = (st, b) => b.synapses.every((x) => (!sim.SENSOR_IDS.includes(x.from) || (st.sensors || []).includes(x.from)) && (st.outputs || []).concat((b.hidden || []).map((h) => h.id)).includes(x.to))
+  && (b.hidden || []).length <= (st.maxHidden || 0);
+const noSkipOk = (st, b) => !st.noSkip || b.synapses.every((x) => !(st.inputs || []).includes(x.from) || /^h\d+$/.test(x.to));
+
+console.log('■ 모든 장의 실험 (정답 보기 = 별 3개, 빈 답 = 실패)');
+for (const st of ALL) {
+  const tag = `${st.code} ${st.title}`;
+  if (st.type === 'logic') {
+    const sol = st.solution;
+    check(usesAllowed(st, sol) && noSkipOk(st, sol), `${tag}: 정답 뇌가 허락된 입력·출력·히든 뉴런만 씀`);
+    const r = sim.evalLogic(st, sol);
+    let testAcc = null;
+    if (st.test) { const t = sim.evalLogic({ rows: st.test, inputs: st.inputs, outputs: st.outputs }, sol); testAcc = t.rows.filter((x) => x.ok).length / st.test.length; }
+    const ok = st.need && st.need.test ? testAcc >= st.need.test : r.ok;
+    check(ok && allStars(pass(st, { status: ok ? 'success' : 'fail', testAcc }, sol)), `${tag}: 정답 → 성공, 별 3개`);
+    const er = sim.evalLogic(st, emptyB());
+    check(!er.ok, `${tag}: 빈 뇌로는 못 깸`);
+  } else if (st.type === 'train') {
+    const run = (lr) => { const b = JSON.parse(JSON.stringify(st.init)); for (let e = 1; e <= (st.maxEpochs || 200); e++) { sim.trainEpoch(st, b, lr); if (sim.evalLogic(st, b).ok) return e; } return null; };
+    if (st.goal && st.goal.type === 'epochsAtLeast') {
+      check(RATES.every((lr) => run(lr) === null), `${tag}: 어떤 학습률로도 못 배움(한계를 보여 주는 실험)`);
+    } else {
+      const e = run(st.solution.lr);
+      check(e !== null && allStars(pass(st, { status: 'success', epochs: e, rates: 1 }, st.init)), `${tag}: 학습률 ${st.solution.lr} → ${e}번 만에 배움, 별 3개`);
+    }
+  } else if (st.type === 'vision') {
+    const d = JSON.parse(JSON.stringify(st.solution));
+    const r = sim.evalVision(st, d);
+    check(r.ok && allStars(pass(st, Object.assign({ status: 'success' }, sim.visionStats(d)), emptyB())), `${tag}: 정답 필터 → 성공, 별 3개`);
+    const n = st.mode === 'class' ? 2 : 1;
+    const blank = { filters: Array.from({ length: n }, () => ({ w: [0, 0, 0, 0, 0, 0, 0, 0, 0], b: 0 })), out: { w: new Array(n).fill(0), b: 0 } };
+    check(!sim.evalVision(st, blank).ok, `${tag}: 빈 필터로는 못 깸`);
+  } else if (st.type === 'seq') {
+    const sol = st.solution;
+    check(usesAllowed(st, sol), `${tag}: 정답 뇌가 허락된 입력·히든 뉴런만 씀`);
+    const r = sim.evalSeq(st, sol);
+    check(r.ok && allStars(pass(st, { status: 'success' }, sol)), `${tag}: 정답 → 성공, 별 3개`);
+    check(!sim.evalSeq(st, emptyB()).ok, `${tag}: 빈 뇌로는 못 깸`);
+    // 기억 없이는 못 푼다: 같은 입력인데 목표가 다른 칸이 있다
+    const seen = {}; let contra = false;
+    for (const q of st.seqs) q.x.forEach((x, i) => { if (q.t[i] == null) return; if (seen[x] !== undefined && seen[x] !== q.t[i]) contra = true; seen[x] = q.t[i]; });
+    check(contra, `${tag}: 지금 입력만 봐서는 풀 수 없음(기억이 꼭 필요)`);
+  } else if (st.type === 'cluster') {
+    const sol = st.solution;
+    let cs, steps = 0, kTried = 1;
+    if (st.chooseK) { const r = sim.kmRun(st.pts, st.inits[sol.k]); cs = r.centers; steps = r.steps; kTried = 6; }
+    else if (sol.centers && !sol.fresh) cs = sol.centers;
+    else { const r = sim.kmRun(st.pts, sol.centers || st.init); cs = r.centers; steps = r.steps; }
+    const ok = sim.kmMatches(st.pts, cs) && (st.goal !== 'converged' || sim.kmConverged(st.pts, cs));
+    check(ok && allStars(pass(st, { status: ok ? 'success' : 'fail', inertia: sim.kmInertia(st.pts, cs), steps, kTried }, emptyB())), `${tag}: 정답 → 성공, 별 3개 (거리 합 ${sim.kmInertia(st.pts, cs).toFixed(3)})`);
+    const start = st.chooseK ? st.inits[st.k0] : st.init;
+    check(!sim.kmMatches(st.pts, start), `${tag}: 처음 자리 그대로는 못 깸`);
+  } else if (st.type === 'reward') {
+    // 강화학습: 정답 점수 규칙으로 maxGens 안에 목표를 배우는지 (시간이 걸려서 앞의 두 실험만 돌린다)
+    if (!['R1', 'R2'].includes(st.id)) continue;
+    const state = sim.rlInit(st);
+    let gens = null;
+    for (let g = 0; g < st.maxGens; g++) {
+      sim.rlGeneration(st, state, st.solution.rw, st.solution.sigma);
+      const ep = sim.runEpisode(st, sim.rlBuild(st, state.theta), st.solution.rw, true);
+      if (sim.objectiveOk(st, ep)) { gens = state.gen; break; }
+    }
+    check(gens !== null, `${tag}: 정답 점수 규칙으로 ${gens}세대 만에 배움`);
+  }
+}
+
+console.log('■ 8~10장 힌트에 적은 말이 맞는지');
+{
+  const M2 = ALL.find((s) => s.id === 'M2');
+  check(!sim.evalSeq(M2, B('inA>out:1', 'memO>out:0.4')).ok, 'M2 출력 기억 세기 0.4면 기억이 희미해져 실패');
+  const M1 = ALL.find((s) => s.id === 'M1');
+  check(!sim.evalSeq(M1, B('inA>h1:1', 'mem1>out:1', 'inA>out:1')).ok, 'M1 입력 A를 출력에도 이으면 실패');
+  const M5 = ALL.find((s) => s.id === 'M5');
+  const rng = sim.makeRng('m5-qa');
+  let found = false;
+  for (let i = 0; i < 20000 && !found; i++) { const w = () => (rng() * 6 - 3).toFixed(1); found = sim.evalSeq(M5, B(`inA>out:${w()}`, `memO>out:${w()}`, `bias>out:${w()}`)).ok; }
+  check(!found, 'M5 홀짝 세기는 히든 뉴런 없이 풀리지 않음');
+  const K3 = ALL.find((s) => s.id === 'K3');
+  const trap = sim.kmRun(K3.pts, K3.init);
+  check(!sim.kmMatches(K3.pts, trap.centers) && sim.kmConverged(K3.pts, trap.centers), 'K3 처음 자리로 걸으면 엉뚱한 답에 갇혀 멈춤(지역 최소)');
+  const K2 = ALL.find((s) => s.id === 'K2');
+  check(sim.kmRun(K2.pts, K2.init).steps === 3, 'K2 처음 자리에서 3걸음 만에 멈춤(힌트와 일치)');
+  const K4 = ALL.find((s) => s.id === 'K4');
+  check([1, 2, 3, 5, 6].every((k) => !sim.kmMatches(K4.pts, sim.kmRun(K4.pts, K4.inits[k]).centers)), 'K4 k = 4가 아니면 못 깸');
+  const A4 = ALL.find((s) => s.id === 'A4');
+  const exp = { 0.02: 248, 0.1: 45, 0.3: 9, 0.5: 8 };
+  const runA4 = (lr) => { const b = JSON.parse(JSON.stringify(A4.init)); for (let e = 1; e <= A4.maxEpochs; e++) { sim.trainEpoch(A4, b, lr); if (sim.evalLogic(A4, b).ok) return e; } return null; };
+  check(Object.entries(exp).every(([lr, n]) => runA4(+lr) === n) && [1, 2, 3].every((lr) => runA4(lr) === null), 'A4 학습률별 학습 횟수가 힌트와 같음');
+  const A2 = ALL.find((s) => s.id === 'A2');
+  check(A2.solution.synapses.every((x) => !A2.inputs.includes(x.from) || /^h/.test(x.to)), 'A2 정답이 입력→출력 직접 연결을 쓰지 않음');
+  const C6 = ALL.find((s) => s.id === 'C6');
+  const runC6 = (lr) => { const b = JSON.parse(JSON.stringify(C6.init)); for (let e = 1; e <= C6.maxEpochs; e++) { sim.trainEpoch(C6, b, lr); if (sim.evalLogic(C6, b).ok) return e; } return null; };
+  check(runC6(0.02) === 25 && runC6(0.1) === 7 && runC6(0.3) === 5 && runC6(1) === null && runC6(3) === null, 'C6 학습률별 학습 횟수가 힌트와 같음(여러 출력 학습으로 바꾼 뒤에도)');
+}
+
+console.log('■ 데이터 모양');
+{
+  const ids = ALL.map((s) => s.id);
+  check(new Set(ids).size === ids.length, `실험 id가 겹치지 않음 (${ids.length}개)`);
+  check(ALL.every((s) => s.hints && s.hints.length === 3 && s.solution && s.goalText && s.brief), '모든 실험에 힌트 3개·정답·목표·설명이 있음');
+  check(ALL.every((s) => content.CONCEPTS[s.concept]), '모든 실험의 개념 카드가 있음');
+  const chapters = [...new Set(ALL.map((s) => s.chapter))];
+  check(chapters.length === content.TRACKS[0].chapters.length && chapters.every((c) => content.TRACKS[0].chapters.some((x) => x.no === c)), `장 목록과 실험이 맞음 (${chapters.length}장)`);
+}
+
 console.log(failures ? `\n✗ 실패 ${failures}개` : '\n✓ 모두 통과');
 process.exit(failures ? 1 : 0);

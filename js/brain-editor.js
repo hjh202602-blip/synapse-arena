@@ -20,22 +20,24 @@
     MX = LW - 56; HX1 = LW - 140; HY1 = LH - 36; MID = LH / 2;
     MY_L = LH * 0.305; MY_R = LH * 0.695;
   }
-  const ORDER = ['inA', 'inB', 'inC', 'eyeL', 'feelL', 'whiskL', 'bias', 'whiskR', 'feelR', 'eyeR'];
+  const ORDER = ['inA', 'inB', 'inC', 'inD', 'inX', 'inY', 'mem1', 'mem2', 'memO', 'eyeL', 'feelL', 'whiskL', 'bias', 'whiskR', 'feelR', 'eyeR'];
+  const OUTS = ['motorL', 'motorR', 'out', 'out2', 'out3', 'out4'];
+  const MEM_SRC = SA.sim.MEM_SRC;
   const MAX_SYN = 40;
-  const GROUP_COLOR = { bias: '#c9d3ea', eye: '#ffd166', danger: '#ff5fa2', wall: '#5ee6d0', hidden: '#c3a6ff', motor: '#7ee081', input: '#8fd3ff' };
+  const GROUP_COLOR = { bias: '#c9d3ea', eye: '#ffd166', danger: '#ff5fa2', wall: '#5ee6d0', hidden: '#c3a6ff', motor: '#7ee081', input: '#8fd3ff', memory: '#f59f80' };
   // 왼눈·오른눈은 아레나의 시야 색과 맞춘다
   const ID_COLOR = { eyeL: '#ffa94d', eyeR: '#ffe066' };
   const GLYPH = { bias: '1', eye: '눈', danger: '촉', wall: '수', motor: '바퀴' };
-  const ID_GLYPH = { inA: 'A', inB: 'B', inC: 'C', out: '답', out2: '답2' };
-  const SHORT = { bias: '상시', eyeL: '왼눈', eyeR: '오른눈', feelL: '왼 더듬이', feelR: '오른 더듬이', whiskL: '왼 수염', whiskR: '오른 수염', motorL: '왼바퀴', motorR: '오른바퀴', inA: '입력 A', inB: '입력 B', inC: '입력 C', out: '출력', out2: '출력 2' };
-  const SPIKE_PITCH = { motorL: 520, motorR: 700, out: 610, out2: 760 };
+  const ID_GLYPH = { inA: 'A', inB: 'B', inC: 'C', inD: 'D', inX: 'x', inY: 'y', mem1: '↺1', mem2: '↺2', memO: '↺답', out: '답', out2: '답2', out3: '답3', out4: '답4' };
+  const SHORT = { bias: '상시', eyeL: '왼눈', eyeR: '오른눈', feelL: '왼 더듬이', feelR: '오른 더듬이', whiskL: '왼 수염', whiskR: '오른 수염', motorL: '왼바퀴', motorR: '오른바퀴', inA: '입력 A', inB: '입력 B', inC: '입력 C', inD: '입력 D', inX: 'x 좌표', inY: 'y 좌표', mem1: '기억 1', mem2: '기억 2', memO: '출력 기억', out: '출력', out2: '출력 2', out3: '출력 3', out4: '출력 4' };
+  const SPIKE_PITCH = { motorL: 520, motorR: 700, out: 610, out2: 760, out3: 840, out4: 920 };
 
   function create(canvas, hooks = {}) {
     const ctx = canvas.getContext('2d');
     // outputs: 출력 뉴런 목록, fixedHidden: 히든 뉴런 수를 고정(추가·삭제 불가), minHidden: 처음부터 둘 히든 뉴런 수
     // readOnly: 보기만 가능(학습 실험)
     // funcs: 고를 수 있는 활성화 함수 목록(1개뿐이면 함수 고르기를 숨긴다)
-    let cfg = { sensors: SENSORS.map((s) => s.id), outputs: ['motorL', 'motorR'], maxHidden: 0, fixedHidden: 0, minHidden: 0, readOnly: false, funcs: ['clamp'] };
+    let cfg = { sensors: SENSORS.map((s) => s.id), outputs: ['motorL', 'motorR'], maxHidden: 0, fixedHidden: 0, minHidden: 0, readOnly: false, funcs: ['clamp'], noSkip: false };
     let brain = { hidden: [], synapses: [] };
     let sel = null;           // {type:'syn', i} | {type:'neuron', id}
     let hover = null;         // 같은 모양
@@ -56,12 +58,13 @@
       ss.forEach((id, i) => { pos[id] = { x: SX, y: HY0 + ((i + 0.5) * span) / ss.length }; });
       const outs = cfg.outputs;
       if (outs.length === 1) pos[outs[0]] = { x: MX, y: MID };
-      else outs.forEach((id, i) => { pos[id] = { x: MX, y: i === 0 ? MY_L : MY_R }; });
+      else if (outs.length === 2) outs.forEach((id, i) => { pos[id] = { x: MX, y: i === 0 ? MY_L : MY_R }; });
+      else outs.forEach((id, i) => { pos[id] = { x: MX, y: HY0 + ((i + 0.5) * span) / outs.length }; });
       for (const h of brain.hidden) pos[h.id] = { x: HX0 + h.x * (HX1 - HX0), y: HY0 + h.y * (HY1 - HY0) };
       return pos;
     }
     function kindOf(id) {
-      if (id === 'motorL' || id === 'motorR' || id === 'out' || id === 'out2') return 'motor';
+      if (OUTS.includes(id)) return 'motor';
       if (/^h\d+$/.test(id)) return 'hidden';
       return 'sensor';
     }
@@ -104,6 +107,7 @@
         const fromOk = allowed.has(s.from) || ids.has(s.from);
         const toOk = cfg.outputs.includes(s.to) || ids.has(s.to);
         if (!fromOk || !toOk || s.from === s.to) continue;
+        if (skipBlocked(s.from, s.to)) continue;
         if (out.synapses.some((o) => o.from === s.from && o.to === s.to)) continue;
         const w = Number(s.w);
         const ww = Number.isFinite(w) ? clampW(w) : 1;
@@ -133,7 +137,12 @@
     }
     function getBrain() { return JSON.parse(JSON.stringify(brain)); }
 
+    // 압축 실험: 입력은 출력에 바로 잇지 못하고 히든 뉴런(코드)을 거쳐야 한다
+    function skipBlocked(from, to) {
+      return !!cfg.noSkip && kindOf(from) === 'sensor' && from !== 'bias' && kindOf(to) === 'motor';
+    }
     function addSynapse(from, to) {
+      if (skipBlocked(from, to)) { toast('이 실험은 입력을 출력에 바로 이을 수 없어요. 가운데 히든 뉴런(코드)을 거쳐야 해요'); return; }
       const ex = brain.synapses.findIndex((s) => s.from === from && s.to === to);
       if (ex >= 0) { sel = { type: 'syn', i: ex }; emitSelect(); return; }
       if (brain.synapses.length >= MAX_SYN) { toast(`시냅스는 ${MAX_SYN}개까지 만들 수 있어요`); return; }
@@ -596,6 +605,28 @@
         }
       }
 
+      // 되먹임: 기억 뉴런은 바로 전 순간의 히든·출력 값을 받는다(점선)
+      for (const id of cfg.sensors) {
+        const src = MEM_SRC[id];
+        if (!src || !pos[src] || !pos[id]) continue;
+        const a = pos[src], b = pos[id];
+        const top = Math.max(8, Math.min(a.y, b.y) - 46);
+        ctx.strokeStyle = 'rgba(245,159,128,0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 5]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y - NR);
+        ctx.bezierCurveTo(a.x, top, b.x + 70, top, b.x + NR + 2, b.y - 6);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(245,159,128,0.85)';
+        ctx.beginPath();
+        ctx.moveTo(b.x + NR + 2, b.y - 6); ctx.lineTo(b.x + NR + 11, b.y - 12); ctx.lineTo(b.x + NR + 10, b.y - 2);
+        ctx.fill();
+        ctx.font = '600 11px ' + fontFamily();
+        ctx.textAlign = 'center';
+        ctx.fillText('되먹임', (a.x + b.x) / 2 + 20, top + 10);
+      }
       // 뉴런
       for (const id in pos) {
         const p = pos[id];
@@ -653,7 +684,9 @@
         const a = pos[ss[Math.floor(ss.length / 2)]];
         if (a) {
           const tt = (performance.now() / 1000) % 2.2 / 2.2;
-          const c = curve(a, pos[cfg.outputs[0]]);
+          // 압축 실험은 입력을 출력에 바로 못 이으니 히든 뉴런 쪽을 가리킨다
+          const toHidden = cfg.noSkip && brain.hidden.length;
+          const c = curve(a, toHidden ? pos[brain.hidden[0].id] : pos[cfg.outputs[0]]);
           const q = bez(c, Math.min(1, tt * 1.15));
           ctx.strokeStyle = 'rgba(233,238,251,0.18)';
           ctx.setLineDash([4, 6]); ctx.lineWidth = 2; path(c); ctx.stroke(); ctx.setLineDash([]);
@@ -661,7 +694,7 @@
           ctx.beginPath(); ctx.arc(q.x, q.y, 5, 0, Math.PI * 2); ctx.fill();
           ctx.font = '700 13px ' + fontFamily();
           ctx.textAlign = 'center';
-          ctx.fillText(cfg.outputs.includes('out') ? '입력을 끌어서 출력에 놓아 보세요' : '센서를 끌어서 바퀴에 놓아 보세요', (SX + MX) / 2, 30);
+          ctx.fillText(toHidden ? '입력을 끌어서 히든 뉴런에 놓아 보세요' : cfg.outputs.includes('out') ? '입력을 끌어서 출력에 놓아 보세요' : '센서를 끌어서 바퀴에 놓아 보세요', (SX + MX) / 2, 30);
         }
       }
     }
