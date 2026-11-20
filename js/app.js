@@ -5,7 +5,7 @@
   'use strict';
   const SA = globalThis.SA;
   const { sim, content, audio } = SA;
-  const { STAGES, TRACKS, RATES, SIGMAS, LAB_ARENAS, VERSUS_ARENAS, RIVALS, CONCEPTS, GLOSSARY, FUNCS_ALL } = content;
+  const { STAGES, TRACKS, TAGS, RATES, SIGMAS, LAB_ARENAS, VERSUS_ARENAS, RIVALS, CONCEPTS, GLOSSARY, FUNCS_ALL } = content;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,7 +17,7 @@
   // ===================================================================
   const KEY = 'synapse-arena:v1';
   const DEFAULTS = {
-    progress: {}, brains: {}, lab: { arena: 'lab-field', brain: null }, slots: [null, null, null],
+    progress: {}, brains: {}, lab: { arena: 'lab-field', brain: null }, slots: [null, null, null, null, null, null],
     versus: { played: 0, records: {} }, concepts: [], tours: {},
     settings: { master: 0.8, bgm: 0.4, sfx: 0.7, bgmOn: true, spikes: true, sense: false, trail: true, dev: false, theme: 'light' },
   };
@@ -30,7 +30,8 @@
       const d = JSON.parse(raw);
       for (const k of Object.keys(base)) if (d[k] !== undefined) base[k] = d[k];
       base.settings = Object.assign({}, DEFAULTS.settings, d.settings || {});
-      if (!Array.isArray(base.slots) || base.slots.length !== 3) base.slots = [null, null, null];
+      if (!Array.isArray(base.slots)) base.slots = [];
+      while (base.slots.length < 6) base.slots.push(null); // 저장 슬롯 6개(예전 3개짜리 기록도 이어서 쓴다)
       if (!Array.isArray(base.concepts)) base.concepts = [];
       return base;
     } catch (e) { return base; }
@@ -39,7 +40,7 @@
 
   const emptyBrain = () => ({ hidden: [], synapses: [] });
   const cleared = (id) => !!(S.progress[id] && S.progress[id].cleared);
-  // 잠금은 같은 갈래(AI 배우기 / 사고력 퍼즐) 안에서만 이어진다
+  // 잠금은 실험 순서대로 이어진다(튜토리얼은 건너뛰어도 된다)
   const trackOf = (st) => TRACKS.find((t) => t.id === st.track) || TRACKS[0];
   const trackList = (st) => STAGES.filter((x) => x.track === st.track);
   const isUnlockedSt = (st) => {
@@ -177,10 +178,10 @@
       if (!isUnlocked(i)) { toast('이전 실험을 먼저 깨야 열려요'); return go('home'); }
       play.mode = 'stage'; show('play'); openStage(STAGES[i]);
     } else if (v === 'lab') { play.mode = 'lab'; show('play'); openLab(); }
-    else if (v === 'puzzles') { homeTrack = 'think'; show('home'); renderHome(); }
+    else if (v === 'puzzles') { S.settings.tagFilter = '사고력'; save(); go('home'); }
     else if (v === 'versus') { show('versus'); renderVersus(); }
     else if (v === 'notes') { show('notes'); renderNotes(); }
-    else { homeTrack = 'ai'; show('home'); renderHome(); }
+    else { show('home'); renderHome(); }
   }
   function go(r) {
     const target = '#/' + r;
@@ -189,7 +190,7 @@
   function show(v) {
     view = v;
     for (const id of ['home', 'play', 'versus', 'notes']) $('#view-' + id).classList.toggle('hidden', id !== v);
-    const navKey = v === 'play' ? (play.mode === 'lab' ? 'lab' : trackOf(play.cfg || STAGES[0]).route) : v === 'home' ? (homeTrack === 'think' ? 'puzzles' : 'home') : v;
+    const navKey = v === 'play' ? (play.mode === 'lab' ? 'lab' : 'home') : v;
     $$('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.go === navKey));
     document.querySelector('main').classList.toggle('play-mode', v === 'play');
     window.scrollTo(0, 0);
@@ -208,18 +209,18 @@
   // 홈
   // ===================================================================
   function renderHome() {
-    const tr = TRACKS.find((t) => t.id === homeTrack) || TRACKS[0];
-    const list = STAGES.filter((st) => st.track === tr.id);
-    const other = TRACKS.find((t) => t.id !== tr.id);
+    const tr = TRACKS[0];
+    const filter = S.settings.tagFilter || '전체';
+    const list = STAGES.filter((st) => filter === '전체' || st.tag === filter);
     const clearedN = list.filter((st) => cleared(st.id)).length;
     const starsN = list.reduce((n, st) => n + ((S.progress[st.id] && S.progress[st.id].stars) || []).filter(Boolean).length, 0);
-    const next = list.find((st) => isUnlockedSt(st) && !cleared(st.id)) || list[0];
+    const next = STAGES.find((st) => isUnlockedSt(st) && !cleared(st.id) && (filter === '전체' || st.tag === filter)) || list[0] || STAGES[0];
     const card = (st) => {
       const p = S.progress[st.id] || {};
       const locked = !isUnlockedSt(st);
       return `
         <button class="stage-card ${st.boss ? 'boss' : ''} ${locked ? 'locked' : ''} ${p.cleared ? 'cleared' : ''}" ${locked ? 'aria-disabled="true"' : `data-go="stage/${st.id}"`}>
-          <span class="no">${st.boss ? '마무리 · ' : ''}${st.code}</span>
+          <span class="no">${st.boss ? '마무리 · ' : ''}${st.code} <span class="tag ${st.tag === '사고력' ? 't-think' : 't-ai'}">${esc(st.tag)}</span></span>
           <h3>${esc(st.title)}</h3>
           ${stageThumb(st)}
           <p>${esc(st.goalText)}</p>
@@ -228,15 +229,16 @@
     };
     const chapters = tr.chapters.map((ch) => {
       const chList = list.filter((st) => st.chapter === ch.no);
+      if (!chList.length) return '';
       const done = chList.filter((st) => cleared(st.id)).length;
       return `
-        <div class="section-head chapter-head"><div><div class="eyebrow">${ch.no}장 · ${done}/${chList.length}</div><h2>${esc(ch.title)}</h2>
+        <div class="section-head chapter-head"><div><div class="eyebrow">${ch.no}장 · ${done}/${chList.length} <span class="tag ${ch.tag === '사고력' ? 't-think' : 't-ai'}">${esc(ch.tag)}</span></div><h2>${esc(ch.title)}</h2>
           <p class="muted" style="margin:4px 0 0;max-width:760px">${esc(ch.desc)}</p></div></div>
         <div class="stage-grid">${chList.map(card).join('')}</div>`;
     }).join('');
-    const heroText = tr.id === 'ai'
-      ? { eyebrow: 'AI 배우기 · 점은 뉴런, 선은 시냅스', h1: '뇌를 <em>직접 이어</em> 보면<br>AI가 <em class="r">보인다</em>', p: '인공지능의 기본 단위는 뉴런 하나다. 입력에 가중치를 곱해 더하고, 문턱을 넘으면 켜진다. 그 뉴런을 손으로 이어 논리 게이트를 만들고, 마지막에는 스스로 배우게 한다.' }
-      : { eyebrow: '사고력 퍼즐 · 정답은 하나가 아니다', h1: '조건을 <em>쪼개고</em>,<br>작은 부품으로 <em class="r">조립하라</em>', p: '여기서는 개념을 배우기보다 생각하는 힘을 기른다. 큰 조건을 작은 조건으로 나누고, 적은 시냅스로 회로를 짜고, 생명체가 스스로 길을 찾게 규칙을 설계한다.' };
+    const counts = { '전체': STAGES.length };
+    for (const t of TAGS) counts[t] = STAGES.filter((st) => st.tag === t).length;
+    const heroText = { eyebrow: 'AI 배우기 · 점은 뉴런, 선은 시냅스', h1: '뇌를 <em>직접 이어</em> 보면<br>AI가 <em class="r">보인다</em>', p: '인공지능의 기본 단위는 뉴런 하나다. 입력에 가중치를 곱해 더하고, 문턱을 넘으면 켜진다. 그 뉴런을 손으로 이어 논리 게이트를 만들고, 생명체를 움직이고, 마지막에는 스스로 배우게 한다. 개념을 배우는 실험과 생각하는 힘을 기르는 퍼즐이 번갈아 나온다.' };
     $('#view-home').innerHTML = `
       <div class="hero">
         <canvas id="heroCanvas"></canvas>
@@ -246,18 +248,21 @@
           <p>${heroText.p}</p>
           <div class="hero-actions">
             <button class="btn primary" data-go="stage/${next.id}">▶ ${next.code} · ${esc(next.title)}</button>
-            <button class="btn" data-go="${other.route}">${esc(other.title)}로 가기</button>
             <button class="btn ghost" data-go="notes">개념 노트</button>
           </div>
         </div>
       </div>
       <div class="progress-row">
-        <div class="stat-pill"><div class="k">깬 ${tr.id === 'ai' ? '실험' : '퍼즐'}</div><div class="v">${clearedN} / ${list.length}</div></div>
+        <div class="stat-pill"><div class="k">깬 실험${filter === '전체' ? '' : ' (' + esc(filter) + ')'}</div><div class="v">${clearedN} / ${list.length}</div></div>
         <div class="stat-pill"><div class="k">모은 별</div><div class="v">★ ${starsN} / ${list.length * 3}</div></div>
         <div class="stat-pill"><div class="k">발견한 개념</div><div class="v">${CONCEPT_ORDER.filter(conceptOpen).length} / ${CONCEPT_ORDER.length}</div></div>
         <div class="stat-pill"><div class="k">대결</div><div class="v">${S.versus.played}판</div></div>
       </div>
+      <div class="tag-filter"><span class="muted">분류</span>
+        <div class="seg" id="tagSeg">${['전체'].concat(TAGS).map((t) => `<button data-t="${t}" class="${t === filter ? 'on' : ''}">${esc(t)} <span class="cnt">${counts[t]}</span></button>`).join('')}</div>
+        <span class="muted tag-help">AI 개념: 인공지능의 원리를 배우는 실험 · 사고력: 조건을 쪼개고 조립하는 퍼즐</span></div>
       ${chapters}`;
+    $$('#tagSeg button').forEach((b) => (b.onclick = () => { S.settings.tagFilter = b.dataset.t; save(); renderHome(); }));
     hero.attach($('#heroCanvas'));
   }
 
@@ -318,6 +323,8 @@
   const play = { mode: 'stage', cfg: null, world: null, state: 'ready', speed: 1, acc: 0, hints: 0, noticeShown: false, finishTimer: null, row: 3, train: null };
   const isTable = () => play.mode === 'stage' && !!play.cfg && (play.cfg.type === 'logic' || play.cfg.type === 'train');
   const isReward = () => play.mode === 'stage' && !!play.cfg && play.cfg.type === 'reward';
+  // 강화학습 화면인가: 보상 실험, 또는 연구실의 강화학습 모드
+  const isRlView = () => isReward() || (play.mode === 'lab' && play.labMode === 'rl' && !!play.rl);
   const arenaView = SA.arenaView.create($('#arenaCanvas'));
   let inspKey = null, sliderMerge = false, hudCache = '';
 
@@ -349,7 +356,7 @@
     editor.setConfig({ sensors: st.sensors, outputs: st.outputs || ['motorL', 'motorR'], maxHidden: st.maxHidden, fixedHidden: train ? 0 : st.fixedHidden || 0, minHidden: 0, readOnly: train, funcs: st.funcs || ['clamp'] });
     if (st.type === 'reward') {
       play.rl = newRl(st, play.rl && play.rl.id === st.id ? play.rl : null);
-      editor.setBrain(sim.rlBrain(st.sensors, play.rl.state.theta));
+      editor.setBrain(sim.rlBuild(st, play.rl.state.theta));
     } else if (train) {
       play.train = { brain: JSON.parse(JSON.stringify(st.init)), epochs: 0, losses: [], rates: new Set(), lrIdx: play.train && play.train.id === st.id ? play.train.lrIdx : 2, auto: false, acc: 0, id: st.id, done: false };
       play.train.losses.push(sim.lossOf(st, play.train.brain));
@@ -381,7 +388,7 @@
     return autoTourFor(st);
   }
   function replayTour() {
-    const name = play.mode === 'lab' ? 'arena' : tourFor(play.cfg);
+    const name = play.mode === 'lab' ? (play.labMode === 'rl' ? 'reward' : 'arena') : tourFor(play.cfg);
     if (!name) return;
     // 튜토리얼 실험이 아니면 "직접 해 보기" 단계는 빼고 설명만 보여 준다
     const explainOnly = !(play.mode === 'stage' && play.cfg.tour === name);
@@ -393,6 +400,7 @@
     $('#arenaControls').classList.toggle('hidden', on);
     $('#logicPanel').classList.toggle('hidden', !on);
     $('#logicPanel').classList.remove('reward-panel');
+    $('#view-play').classList.remove('rl-layout');
     fitFrame = 0;
   }
   // 보상 실험: 위에는 아레나(지금 뇌가 움직이는 모습), 아래에는 점수 규칙 패널
@@ -401,6 +409,7 @@
     $('#arenaControls').classList.add('hidden');
     $('#logicPanel').classList.remove('hidden');
     $('#logicPanel').classList.add('reward-panel');
+    $('#view-play').classList.add('rl-layout');
     fitFrame = 0;
   }
   function openLab() {
@@ -408,7 +417,8 @@
     const arena = LAB_ARENAS.find((a) => a.id === S.lab.arena) || LAB_ARENAS[0];
     play.cfg = arena;
     play.hints = 0;
-    editor.setConfig({ sensors: sim.SENSOR_IDS.filter((id) => id !== 'inA' && id !== 'inB'), outputs: ['motorL', 'motorR'], maxHidden: 6, fixedHidden: 0, minHidden: 2, readOnly: false, funcs: FUNCS_ALL });
+    if (play.labMode === 'rl') { startLabRl(false); return; }
+    editor.setConfig({ sensors: LAB_SENSORS, outputs: ['motorL', 'motorR'], maxHidden: 6, fixedHidden: 0, minHidden: 2, readOnly: false, funcs: FUNCS_ALL });
     editor.setBrain(S.lab.brain || emptyBrain());
     $('#backLabel').textContent = 'AI 배우기';
     $('#btnAddHidden').classList.remove('hidden');
@@ -420,11 +430,57 @@
     renderBrief();
     updateBrainCount();
   }
+  // ---- 연구실 강화학습 ----
+  const LAB_SENSORS = sim.SENSOR_IDS.filter((id) => id !== 'inA' && id !== 'inB' && id !== 'inC');
+  // 연구실에서 쓰는 학습 설정: 지금 아레나에서 20초씩 시험, 점수 규칙 6가지 모두, 60세대까지
+  function labRlCfg() {
+    const arena = LAB_ARENAS.find((a) => a.id === S.lab.arena) || LAB_ARENAS[0];
+    const mine = S.lab.brain && S.lab.brain.synapses && S.lab.brain.synapses.length ? S.lab.brain : null;
+    if (!mine) play.labRlShape = 'all';
+    const tpl = play.labRlShape === 'mine' && mine ? JSON.parse(JSON.stringify(mine)) : null;
+    return Object.assign({}, arena, {
+      id: 'lab-' + arena.id + '-' + (tpl ? 'mine' : 'all'), sensors: LAB_SENSORS, timeLimit: 20, goal: { type: 'free' },
+      events: ['eat', 'near', 'hit', 'move', 'bump', 'alive'], preset: { eat: 5, near: 1 },
+      maxGens: 60, children: 6, rlTemplate: tpl,
+    });
+  }
+  function startLabRl(keep) {
+    play.mode = 'lab';
+    play.labMode = 'rl';
+    if (!play.labRlShape) play.labRlShape = S.lab.brain && S.lab.brain.synapses && S.lab.brain.synapses.length ? 'mine' : 'all';
+    const cfg = labRlCfg();
+    play.cfg = LAB_ARENAS.find((a) => a.id === S.lab.arena) || LAB_ARENAS[0];
+    const prev = play.rl && play.rl.cfg && String(play.rl.cfg.id).startsWith('lab-') ? play.rl : null;
+    play.rl = newRl(cfg, prev);
+    if (!keep && !prev) play.rl.rw = Object.assign({}, cfg.preset);
+    editor.setConfig({ sensors: LAB_SENSORS, outputs: ['motorL', 'motorR'], maxHidden: 6, fixedHidden: 0, minHidden: 0, readOnly: true, funcs: FUNCS_ALL });
+    editor.setBrain(sim.rlBuild(cfg, play.rl.state.theta));
+    $('#btnAddHidden').classList.add('hidden');
+    for (const id of ['#btnUndo', '#btnRedo', '#btnClear']) $(id).classList.add('hidden');
+    setRewardMode();
+    resetWorld();
+    renderPlayHead();
+    renderBrief();
+    renderRewardPanel();
+    updateBrainCount();
+  }
+  function setLabMode(mode) {
+    if (mode === (play.labMode || 'wire')) return;
+    if (mode === 'wire' && play.rl && play.rl.state.gen > 0) {
+      // 강화학습으로 바뀐 뇌를 그대로 이어서 손으로 고칠 수 있게 연구실 뇌로 넘긴다
+      S.lab.brain = editor.getBrain();
+      save();
+      toast('학습한 뇌를 연구실 뇌로 가져왔어요. 이제 직접 고칠 수 있어요');
+    }
+    if (play.rl) play.rl.running = false;
+    play.labMode = mode;
+    if (mode === 'rl') startLabRl(false); else openLab();
+  }
   function resetWorld() {
     clearTimeout(play.finishTimer);
     if (isTable()) { play.world = null; setPlayState('ready'); return; }
-    if (isReward()) {
-      play.world = sim.createWorld(Object.assign({}, play.cfg, { hazardMode: 'count' }), [editor.getBrain()]);
+    if (isRlView()) {
+      play.world = sim.createWorld(Object.assign({}, play.mode === 'lab' ? play.rl.cfg : play.cfg, { hazardMode: 'count' }), [editor.getBrain()]);
       play.acc = 0;
       arenaView.clearFx();
       setPlayState('running'); // 보상 실험은 지금 뇌의 모습을 계속 되풀이해 보여 준다
@@ -445,7 +501,7 @@
     audio.unlock();
     if (view !== 'play') return;
     if (isTable()) { if (play.cfg.type === 'logic') checkLogic(); else toggleAuto(); return; }
-    if (isReward()) { toggleLearn(); return; }
+    if (isRlView()) { toggleLearn(); return; }
     if (play.state === 'ready') {
       if (!editor.getBrain().synapses.length) toast('뇌가 비어 있어요. 센서를 끌어 바퀴에 이어 보세요');
       audio.sfx.run();
@@ -474,7 +530,7 @@
           <button class="btn sm" id="btnPrevStage" ${prevSt ? '' : 'disabled'} title="${prevSt ? esc(prevSt.code + ' · ' + prevSt.title) : '첫 문제'}">◀ 이전</button>
           <button class="btn sm ghost" id="btnTourAgain" title="이 화면의 기능 안내를 다시 봐요">? 안내 다시 보기</button>
           <button class="btn sm" id="btnNextStage" ${nextOpen ? '' : 'disabled'} title="${nextSt ? (nextOpen ? esc(nextSt.code + ' · ' + nextSt.title) : '이 문제를 깨면 열려요') : '마지막 문제'}">다음 ▶</button>
-        </span>${st.boss ? '<span class="chip c-inh">마무리</span> ' : ''}${st.code} · ${esc(st.title)}`;
+        </span>${st.boss ? '<span class="chip c-inh">마무리</span> ' : ''}${st.code} · ${esc(st.title)} <span class="tag ${st.tag === '사고력' ? 't-think' : 't-ai'}">${esc(st.tag)}</span>`;
       $('#btnPrevStage').onclick = () => prevSt && go('stage/' + prevSt.id);
       $('#btnNextStage').onclick = () => nextOpen && go('stage/' + nextSt.id);
       $('#btnTourAgain').onclick = replayTour;
@@ -488,21 +544,30 @@
       head.innerHTML = `<span class="chip">모든 감각 · 히든 뉴런 6개 · 60초</span>`;
       lab.classList.remove('hidden');
       const opts = LAB_ARENAS.map((a) => `<option value="${a.id}" ${a.id === play.cfg.id ? 'selected' : ''}>${esc(a.title)}</option>`).join('');
-      const slots = S.slots.map((s, i) => `<button class="btn sm" data-slot-load="${i}" ${s ? '' : 'disabled'} title="${s ? esc(s.name) : '비어 있음'}">불러오기 ${i + 1}</button>`).join('');
+      const slots = `<select class="sel" id="labLoadSlot" aria-label="저장한 뇌 불러오기"><option value="">저장한 뇌 불러오기…</option>${S.slots.map((s, i) => s ? `<option value="${i}">${i + 1}. ${esc(s.name)}</option>` : '').join('')}</select>`;
+      const modeSeg = `<div class="seg" id="labModeSeg" title="연구실 방식"><button data-m="wire" class="${play.labMode !== 'rl' ? 'on' : ''}">직접 잇기</button><button data-m="rl" class="${play.labMode === 'rl' ? 'on' : ''}">강화학습</button></div>`;
       lab.innerHTML = `
+        ${modeSeg}
         <select class="sel" id="labArena" aria-label="아레나">${opts}</select>
         <select class="sel" id="labLoadStage" aria-label="실험 뇌 불러오기"><option value="">실험 뇌 불러오기…</option>${STAGES.filter((s) => s.type === 'arena' && S.brains[s.id]).map((s) => `<option value="${s.id}">${s.code} · ${esc(s.title)}</option>`).join('')}</select>
         <button class="btn sm" id="labSave">저장…</button>${slots}
         <button class="btn sm" id="labExport" title="뇌를 코드로 복사">내보내기</button>
         <button class="btn sm" id="labImport" title="뇌 코드 붙여넣기">가져오기</button>`;
-      $('#labArena').onchange = (e) => { S.lab.arena = e.target.value; save(); openLab(); };
+      $('#labArena').onchange = (e) => { S.lab.arena = e.target.value; save(); if (play.labMode === 'rl') startLabRl(true); else openLab(); };
+      $$('#labModeSeg button').forEach((b) => (b.onclick = () => setLabMode(b.dataset.m)));
       $('#labLoadStage').onchange = (e) => {
         const id = e.target.value;
         if (!id) return;
         loadIntoLab(S.brains[id], `${STAGES.find((s) => s.id === id).code}의 뇌를 불러왔어요`);
       };
       $('#labSave').onclick = openSaveDialog;
-      $$('[data-slot-load]').forEach((b) => (b.onclick = () => { const s = S.slots[+b.dataset.slotLoad]; if (s) loadIntoLab(s.brain, `"${s.name}"을 불러왔어요`); }));
+      $('#labLoadSlot').onchange = (e) => {
+        const s = S.slots[+e.target.value];
+        if (!e.target.value || !s) return;
+        if (play.labMode === 'rl') { play.labMode = 'wire'; if (play.rl) play.rl.running = false; }
+        loadIntoLab(s.brain, `"${s.name}"을 불러왔어요`);
+        openLab();
+      };
       $('#labExport').onclick = exportBrain;
       $('#labImport').onclick = importBrain;
     }
@@ -576,7 +641,10 @@
       const ab = $('#btnAnswer');
       if (ab) ab.onclick = confirmAnswer;
     } else {
-      box.innerHTML = `<p>${esc(cfg.desc)} 먹이를 먹으면 점대칭 자리에 새 먹이가 생긴다. 만든 뇌는 <b>저장</b>해 두면 대결에 내보낼 수 있다.</p>
+      box.innerHTML = play.labMode === 'rl'
+        ? `<p><b>강화학습 모드.</b> ${esc(cfg.desc)} 점수 규칙을 정하고 학습시키면 이 아레나에서 20초씩 시험하며 뇌가 스스로 바뀐다. "학습할 선"에서 내가 직접 이은 선만 다듬을지, 감각 → 바퀴를 모두 이은 뇌를 처음부터 배울지 고를 수 있다. 마음에 들면 <b>저장…</b>으로 이름을 붙여 두고 대결에서 불러오자.</p>
+        <div class="sensor-legend">${legend}</div>`
+        : `<p>${esc(cfg.desc)} 먹이를 먹으면 점대칭 자리에 새 먹이가 생긴다. 만든 뇌는 <b>저장</b>해 두면 대결에 내보낼 수 있다. 위의 <b>강화학습</b>을 누르면 점수 규칙만 정해서 뇌를 학습시킬 수도 있다.</p>
         <div class="sensor-legend">${legend}</div>`;
     }
   }
@@ -585,8 +653,8 @@
     const box = $('#inspector');
     if (!d) {
       inspKey = null;
-      if (isReward()) {
-        box.innerHTML = `<div class="tips"><div><b>보상 실험</b> 뇌는 직접 잇지 않아요. 오른쪽에서 점수 규칙을 정하고 학습시키면, 시행착오로 찾은 가장 좋은 뇌가 여기 나타나요.</div>
+      if (isRlView()) {
+        box.innerHTML = `<div class="tips"><div><b>강화학습</b> 뇌는 직접 잇지 않아요. 위쪽 점수 규칙을 정하고 학습시키면, 시행착오로 찾은 가장 좋은 뇌가 여기 나타나요.</div>
           <div>선의 숫자(가중치)가 곧 생명체의 행동 규칙(정책)이에요. 선이나 뉴런을 클릭하면 지금 값을 볼 수 있어요.</div></div>`;
         return;
       }
@@ -658,7 +726,7 @@
     if (d.kind === 'sensor') return '';
     const F = sim.FUNCS;
     if (!d.funcs || d.funcs.length <= 1) {
-      return `<div class="fn-box"><span class="muted">활성화 함수: <b>${esc(F.clamp.name)}</b> · ${isTable() ? '함수 바꾸기는 생명체 퍼즐에서, 논리 게이트·소프트맥스는 연구실에서 쓸 수 있어요' : '이 실험에서는 바꿀 수 없어요'}</span></div>`;
+      return `<div class="fn-box"><span class="muted">활성화 함수: <b>${esc(F.clamp.name)}</b> · ${isTable() ? '함수 바꾸기는 3장 생명체 길찾기부터, 논리 게이트·소프트맥스는 연구실에서 쓸 수 있어요' : '이 실험에서는 바꿀 수 없어요'}</span></div>`;
     }
     const opts = d.funcs.map((f) => `<option value="${f}" ${f === d.fn ? 'selected' : ''}>${esc(F[f].name)}</option>`).join('');
     return `<div class="fn-box"><label class="fn-row"><span>활성화 함수</span><select class="sel" id="fnSel">${opts}</select></label>
@@ -687,6 +755,7 @@
     const cv = $('#arenaCanvas');
     if (!grid || !cv || !matchMedia('(min-width: 1100px) and (min-height: 600px)').matches) { document.documentElement.style.removeProperty('--arena-col'); return; }
     if (isTable()) { document.documentElement.style.setProperty('--arena-col', Math.round(Math.max(520, grid.clientWidth * 0.42)) + 'px'); return; }
+    if (isRlView()) return; // 보상 화면은 한 줄 배치라 칸 너비를 맞출 필요가 없다
     const want = cv.clientHeight * 1.5 + 26;
     const w = Math.max(600, Math.min(want, grid.clientWidth - 434));
     const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--arena-col')) || 0;
@@ -697,7 +766,7 @@
   function tickPlay(dt) {
     if (fitFrame-- <= 0) { fitPlayColumns(); fitFrame = 20; }
     if (isTable()) { tickTable(dt); editor.draw(dt); return; }
-    if (isReward()) tickLearn(dt);
+    if (isRlView()) tickLearn(dt);
     const w = play.world;
     if (play.state === 'running') {
       play.acc += dt * play.speed;
@@ -726,12 +795,12 @@
   }
 
   function finishPlay() {
-    if (isReward()) {
+    if (isRlView()) {
       // 되풀이 보기: 한 판이 끝나면 잠깐 쉬고 다시 시작
       setPlayState('done');
       const w0 = play.world;
       clearTimeout(play.finishTimer);
-      play.finishTimer = setTimeout(() => { if (play.world === w0 && isReward()) resetWorld(); }, 900);
+      play.finishTimer = setTimeout(() => { if (play.world === w0 && isRlView()) resetWorld(); }, 900);
       return;
     }
     setPlayState('done');
@@ -821,50 +890,54 @@
 
   // ===================================================================
   // 보상 실험(강화학습): 점수 규칙 정하기 → 시행착오 학습 → 진짜 목표로 시험
+  // 연구실에서도 같은 학습기를 쓴다(rl.cfg가 실험이면 목표 시험, 연구실이면 목표 없이 계속 학습).
   // ===================================================================
   const PTS = [-5, -2, -1, 0, 1, 2, 5];
-  function newRl(st, prev) {
+  const LEARN_SPEEDS = [1, 2, 4, 8];
+  function newRl(cfg, prev) {
     return {
-      id: st.id,
-      rw: prev ? prev.rw : Object.assign({}, st.preset || {}),
+      id: cfg.id, cfg,
+      rw: prev ? prev.rw : Object.assign({}, cfg.preset || {}),
       sigmaIdx: prev ? prev.sigmaIdx : 1,
-      state: sim.rlInit(st),
+      speedIdx: prev ? prev.speedIdx : 0,
+      state: sim.rlInit(cfg),
       running: false, acc: 0, done: false, lastObj: null,
     };
   }
   const rulesUsed = (rw) => Object.values(rw).filter((v) => v).length;
+  const rlIsLab = () => play.mode === 'lab';
   function resetLearn(quiet) {
-    const st = play.cfg, rl = play.rl;
-    rl.state = sim.rlInit(st);
+    const rl = play.rl;
+    rl.state = sim.rlInit(rl.cfg);
     rl.running = false; rl.done = false; rl.lastObj = null;
-    editor.setBrain(sim.rlBrain(st.sensors, rl.state.theta), true);
+    editor.setBrain(sim.rlBuild(rl.cfg, rl.state.theta), true);
     resetWorld();
     renderRewardPanel();
-    if (!quiet) toast('처음 뇌(모든 가중치 0)로 되돌렸어요');
+    if (!quiet) toast(rl.cfg.rlTemplate ? '학습 전의 뇌로 되돌렸어요' : '처음 뇌(모든 가중치 0)로 되돌렸어요');
   }
   function toggleLearn() {
     const rl = play.rl;
     if (!rl) return;
     if (rl.done) { toast('끝난 학습이에요. "처음부터"를 누르고 다시 해 보세요'); return; }
-    if (!rulesUsed(rl.rw)) { toast('점수 규칙이 비어 있어요. 무엇에 점수를 줄지 먼저 정해 주세요'); return; }
+    if (!rl.running && !rulesUsed(rl.rw)) { toast('점수 규칙이 비어 있어요. 무엇에 점수를 줄지 먼저 정해 주세요'); return; }
     audio.unlock();
     rl.running = !rl.running;
-    rl.acc = 0.3;
-    renderRewardPanel();
+    rl.acc = 1;
+    updateRewardPanel();
   }
   // 한 세대: 지금 뇌를 조금씩 흔든 후보들을 시험해 보고, 점수가 더 높은 후보가 있으면 바꾼다
   function learnGeneration() {
-    const st = play.cfg, rl = play.rl;
-    const improved = sim.rlGeneration(st, rl.state, rl.rw, SIGMAS[rl.sigmaIdx]);
-    const brain = sim.rlBrain(st.sensors, rl.state.theta);
+    const rl = play.rl, cfg = rl.cfg;
+    const improved = sim.rlGeneration(cfg, rl.state, rl.rw, SIGMAS[rl.sigmaIdx]);
+    const brain = sim.rlBuild(cfg, rl.state.theta);
     editor.setBrain(brain, true);
     if (improved) { resetWorld(); audio.sfx.click(); }
-    const ep = sim.runEpisode(st, brain, rl.rw, true);
+    const ep = sim.runEpisode(cfg, brain, rl.rw, !rlIsLab());
     rl.lastObj = ep.stats;
-    if (sim.objectiveOk(st, ep)) {
+    if (!rlIsLab() && sim.objectiveOk(cfg, ep)) {
       rl.running = false; rl.done = true;
       resetWorld();
-      renderRewardPanel();
+      updateRewardPanel();
       audio.sfx.success();
       const gens = rl.state.gen;
       setTimeout(() => stageResult({ status: 'success', gens, rules: rulesUsed(rl.rw) }, brain, () => `
@@ -874,38 +947,46 @@
         <div><div class="k">가시</div><div class="v">${ep.stats.hit}번</div></div>`), 400);
       return;
     }
-    if (rl.state.gen >= st.maxGens) {
+    if (rl.state.gen >= cfg.maxGens) {
       rl.running = false; rl.done = true;
-      toast(`${st.maxGens}세대 동안 목표를 못 배웠어요. 점수 규칙이나 탐험 정도를 바꾸고 "처음부터"를 눌러 보세요`);
+      toast(rlIsLab() ? `${cfg.maxGens}세대 학습을 마쳤어요. 마음에 들면 "저장…"으로 이름을 붙여 저장하세요` : `${cfg.maxGens}세대 동안 목표를 못 배웠어요. 점수 규칙이나 탐험 정도를 바꾸고 "처음부터"를 눌러 보세요`);
     }
-    renderRewardPanel();
+    updateRewardPanel();
   }
   function tickLearn(dt) {
     const rl = play.rl;
     if (!rl || !rl.running || modalOpen()) return;
     rl.acc += dt;
-    if (rl.acc >= 0.3) { rl.acc = 0; learnGeneration(); }
+    const every = 0.3 / LEARN_SPEEDS[rl.speedIdx];
+    // 한 프레임에 너무 많이 돌리면 화면이 멈추므로 최대 2세대까지만
+    let n = 0;
+    while (rl.acc >= every && n < 2 && rl.running) { rl.acc -= every; learnGeneration(); n++; }
+    if (rl.acc > every) rl.acc = every;
   }
+  // 패널 뼈대는 한 번만 그린다. 학습 중에는 updateRewardPanel이 글자·그래프만 고친다(버튼이 바뀌지 않아야 눌린다).
   function renderRewardPanel() {
-    const box = $('#logicPanel'), st = play.cfg, rl = play.rl;
+    const box = $('#logicPanel'), rl = play.rl, cfg = rl.cfg;
     const E = sim.REWARD_EVENTS;
-    const rows = st.events.map((k) => `
+    const rows = cfg.events.map((k) => `
       <div class="rule">
         <div class="rule-name"><b>${esc(E[k].name)}</b><span class="muted">${esc(E[k].unit)}</span></div>
         <div class="seg pts" data-ev="${k}">${PTS.map((v) => `<button data-v="${v}" class="${(rl.rw[k] || 0) === v ? 'on' : ''} ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' + v : v}</button>`).join('')}</div>
       </div>`).join('');
-    const o = rl.lastObj;
-    const goalN = st.goal.n;
+    const labPick = rlIsLab() ? `
+      <div class="set-row" id="rlShapeRow"><span><b>학습할 선</b> <span class="muted">어떤 선의 가중치를 바꾸며 배울까</span></span>
+        <div class="seg" id="rlShape"><button data-s="mine" class="${play.labRlShape === 'mine' ? 'on' : ''}">내가 이은 선</button><button data-s="all" class="${play.labRlShape === 'all' ? 'on' : ''}">감각→바퀴 전부</button></div></div>` : '';
     box.innerHTML = `
       <div class="lp-head"><h3>점수 규칙</h3><span class="muted">무엇에 몇 점을 줄지 정하세요. 생명체는 점수의 합이 커지는 쪽으로 스스로 바뀝니다.</span></div>
       <div class="rules" id="rewardRules">${rows}</div>
+      ${labPick}
       <div class="set-row" id="sigRow"><span><b>탐험 정도</b> <span class="muted">뇌를 한 번에 얼마나 크게 바꿔 볼까</span></span>
         <div class="seg" id="sigSeg">${SIGMAS.map((v, i) => `<button data-i="${i}" class="${i === rl.sigmaIdx ? 'on' : ''}">${v}</button>`).join('')}</div></div>
       <div class="lp-actions">
-        <button class="btn primary" id="btnLearn">${rl.running ? '⏸ 멈추기' : rl.state.gen ? '▶ 이어서 학습' : '▶ 학습 시작'} <kbd>Space</kbd></button>
+        <button class="btn primary" id="btnLearn"></button>
         <button class="btn ghost" id="btnLearnReset">↺ 처음부터</button>
-        <span class="muted" id="rlStatus">세대 <b>${rl.state.gen}</b> / ${st.maxGens}${o ? ` · 지금 뇌로 시험하면 먹이 ${o.eat}/${goalN}${st.maxHits != null ? `, 가시 ${o.hit}번` : ''}` : ''}</span>
+        <div class="seg" id="learnSpeed" title="학습 배속">${LEARN_SPEEDS.map((v, i) => `<button data-i="${i}" class="${i === rl.speedIdx ? 'on' : ''}">${v}×</button>`).join('')}</div>
       </div>
+      <div class="muted rl-status" id="rlStatus"></div>
       <div class="chart-wrap"><canvas id="rewardChart" aria-label="세대별 점수 그래프"></canvas></div>`;
     $$('#rewardRules .pts').forEach((seg) => seg.querySelectorAll('button').forEach((b) => (b.onclick = () => {
       const k = seg.dataset.ev, v = +b.dataset.v;
@@ -920,11 +1001,29 @@
       rl.sigmaIdx = i;
       if (rl.state.gen) { resetLearn(true); toast('탐험 정도가 바뀌어서 처음부터 다시 배워요'); } else renderRewardPanel();
     }));
+    $$('#learnSpeed button').forEach((b) => (b.onclick = () => {
+      rl.speedIdx = +b.dataset.i;
+      $$('#learnSpeed button').forEach((x) => x.classList.toggle('on', x === b));
+    }));
+    $$('#rlShape button').forEach((b) => (b.onclick = () => { if (play.labRlShape !== b.dataset.s) { play.labRlShape = b.dataset.s; startLabRl(true); } }));
     $('#btnLearn').onclick = toggleLearn;
     $('#btnLearnReset').onclick = () => resetLearn(false);
-    drawSeries($('#rewardChart'), rl.state.history, '받은 점수(그 세대의 최고)', '세대 →');
+    updateRewardPanel();
   }
-  function drawSeries(cv, L, yLabel, xLabel) {
+  function updateRewardPanel() {
+    const rl = play.rl;
+    if (!rl || !$('#btnLearn')) return;
+    const cfg = rl.cfg, o = rl.lastObj;
+    $('#btnLearn').innerHTML = `${rl.running ? '⏸ 멈추기' : rl.state.gen ? '▶ 이어서 학습' : '▶ 학습 시작'} <kbd>Space</kbd>`;
+    let status = `세대 <b>${rl.state.gen}</b> / ${cfg.maxGens}`;
+    if (o) status += rlIsLab()
+      ? ` · 지금 뇌: 먹이 ${o.eat}개, 가시 ${o.hit}번`
+      : ` · 지금 뇌로 시험하면 먹이 ${o.eat}/${cfg.goal.n}${cfg.maxHits != null ? `, 가시 ${o.hit}번` : ''}`;
+    $('#rlStatus').innerHTML = status;
+    drawSeries($('#rewardChart'), rl.state.history, '받은 점수(그 세대의 최고)', '세대', '#7ee081');
+  }
+  // 값 목록을 선 그래프로. 점이 많아지면 점 사이 간격을 줄여서 항상 전부 들어가게 그린다.
+  function drawSeries(cv, L, yLabel, xLabel, color) {
     if (!cv) return;
     const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     const w = cv.clientWidth || 400, h = cv.clientHeight || 120;
@@ -933,18 +1032,28 @@
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = '#1d2128'; g.fillRect(0, 0, w, h);
     g.font = '11px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#98a4c2';
-    g.textAlign = 'left'; g.fillText(yLabel, 42, 13); g.textAlign = 'right'; g.fillText(xLabel, w - 10, h - 6);
-    if (!L.length) { g.textAlign = 'center'; g.fillText('학습을 시작하면 세대마다 점수가 그려져요', w / 2, h / 2 + 4); return; }
-    const lo = Math.min(0, ...L), hi = Math.max(1, ...L);
-    const n = Math.max(10, L.length - 1);
-    const X = (i) => 40 + (i / n) * (w - 52), Y = (v) => h - 22 - ((v - lo) / (hi - lo)) * (h - 36);
-    g.strokeStyle = 'rgba(152,164,194,0.25)'; g.lineWidth = 1;
-    for (const v of [lo, (lo + hi) / 2, hi]) { g.beginPath(); g.moveTo(40, Y(v)); g.lineTo(w - 10, Y(v)); g.stroke(); g.textAlign = 'right'; g.fillText(v.toFixed(0), 36, Y(v) + 4); }
-    g.strokeStyle = '#7ee081'; g.lineWidth = 2.2; g.beginPath();
+    g.textAlign = 'left'; g.fillText(yLabel, 46, 13);
+    if (!L.length) { g.textAlign = 'center'; g.fillText('시작하면 여기에 그래프가 그려져요', w / 2, h / 2 + 4); return; }
+    const lo = Math.min(0, ...L), hi = Math.max(lo + 1e-6, ...L, L.length ? Math.max(...L) * 1.05 : 1);
+    const left = 44, right = w - 12, top = 20, bottom = h - 24;
+    const span = Math.max(1, L.length - 1);
+    const X = (i) => left + (i / span) * (right - left), Y = (v) => bottom - ((v - lo) / (hi - lo || 1)) * (bottom - top);
+    g.strokeStyle = 'rgba(152,164,194,0.22)'; g.lineWidth = 1;
+    for (const v of [lo, (lo + hi) / 2, hi]) {
+      g.beginPath(); g.moveTo(left, Y(v)); g.lineTo(right, Y(v)); g.stroke();
+      g.textAlign = 'right'; g.fillText(Math.abs(hi - lo) < 3 ? v.toFixed(2) : v.toFixed(0), left - 4, Y(v) + 4);
+    }
+    // 가로축 눈금: 처음, 가운데, 마지막
+    g.textAlign = 'center';
+    const ticks = [...new Set([0, Math.round(span / 2), span])];
+    for (const t of ticks) g.fillText(String(t), X(t), h - 8);
+    g.textAlign = 'right'; g.fillText(xLabel + ' →', right, 13);
+    g.strokeStyle = color; g.lineWidth = L.length > 120 ? 1.5 : 2.2; g.beginPath();
     L.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))));
     g.stroke();
-    g.fillStyle = '#7ee081'; g.beginPath(); g.arc(X(L.length - 1), Y(L[L.length - 1]), 3.5, 0, 6.3); g.fill();
+    g.fillStyle = color; g.beginPath(); g.arc(X(L.length - 1), Y(L[L.length - 1]), 3.5, 0, 6.3); g.fill();
   }
+
 
   // ===================================================================
   // 정답 보기
@@ -952,7 +1061,7 @@
   function confirmAnswer() {
     const st = play.cfg;
     const m = openModal(`<h2>정말 정답을 보시겠습니까?</h2>
-      <p class="muted">${st.type === 'reward' ? '점수 규칙과 탐험 정도가 정답 값으로 바뀝니다.' : st.type === 'train' ? '학습률이 추천 값으로 바뀝니다.' : '지금 뇌가 정답 뇌로 바뀝니다. Ctrl+Z로 되돌릴 수 있어요.'} 직접 풀어 볼수록 더 많이 배워요.</p>
+      <p class="muted">${st.type === 'reward' ? '점수 규칙과 탐험 정도가 정답 값으로 바뀌고 학습이 처음부터 시작됩니다.' : st.type === 'train' ? '학습이 처음 가중치로 돌아가고 학습률이 추천 값으로 바뀝니다.' : '지금 뇌가 정답 뇌로 바뀝니다. Ctrl+Z로 되돌릴 수 있어요.'} 직접 풀어 볼수록 더 많이 배워요.</p>
       <div class="modal-actions"><button class="btn primary" data-a="no" data-autofocus>아니요</button><button class="btn gold" data-a="yes">예</button></div>`);
     m.querySelector('[data-a="no"]').onclick = closeModal;
     m.querySelector('[data-a="yes"]').onclick = () => { closeModal(); showAnswer(); };
@@ -968,8 +1077,10 @@
     }
     if (st.type === 'train') {
       play.train.lrIdx = Math.max(0, RATES.indexOf(st.solution.lr));
-      renderLogicPanel();
-      toast(`정답: 학습률 ${st.solution.lr}. ${st.goal && st.goal.type === 'epochsAtLeast' ? '자동 학습으로 50번을 채워 보세요' : '자동 학습을 눌러 보세요'}`);
+      resetTrain();
+      toast(st.goal && st.goal.type === 'epochsAtLeast'
+        ? '정답: 학습률 0.1로 자동 학습 → 잠깐 멈추고 1로 바꿔 이어서 → 다시 멈추고 3으로 바꿔 50번을 채우면 별 3개예요'
+        : `정답: 학습률 ${st.solution.lr}로 처음부터 다시 준비했어요. 자동 학습을 눌러 보세요`);
       return;
     }
     editor.loadBrain(st.solution);
@@ -981,7 +1092,7 @@
   // ===================================================================
   function renderLogicPanel() {
     const box = $('#logicPanel');
-    if (isReward()) { renderRewardPanel(); return; }
+    if (isRlView()) { renderRewardPanel(); return; }
     if (!isTable()) { box.innerHTML = ''; return; }
     const st = play.cfg;
     const brain = st.type === 'train' ? play.train.brain : editor.getBrain();
@@ -1013,6 +1124,7 @@
           <div class="lp-actions">
             <button class="btn" id="btnLearn1">한 번 배우기</button>
             <button class="btn primary" id="btnAuto">${t.auto ? '⏸ 멈추기' : '▶ 자동 학습'} <kbd>Space</kbd></button>
+            <div class="seg" id="trainSpeed" title="학습 배속">${LEARN_SPEEDS.map((v, i) => `<button data-i="${i}" class="${i === (t.speedIdx || 0) ? 'on' : ''}">${v}×</button>`).join('')}</div>
             <button class="btn ghost" id="btnTrainReset">↺ 처음 가중치로 <kbd>R</kbd></button>
           </div>
           <div class="stat-grid">
@@ -1033,8 +1145,10 @@
     if (ck) ck.onclick = checkLogic;
     if (st.type === 'train') {
       $('#lrRange').oninput = (e) => { play.train.lrIdx = +e.target.value; $('#lrVal').textContent = RATES[play.train.lrIdx]; };
-      $('#btnLearn1').onclick = () => { audio.unlock(); learnOnce(); };
-      $('#btnAuto').onclick = () => { audio.unlock(); toggleAuto(); };
+      // 자동 학습 중에는 패널이 계속 새로 그려져서 클릭(누름+뗌)이 끊길 수 있다 → 누르는 순간 반응
+      $('#btnLearn1').onpointerdown = (e) => { if (e.button === 0) { audio.unlock(); learnOnce(); } };
+      $('#btnAuto').onpointerdown = (e) => { if (e.button === 0) { audio.unlock(); toggleAuto(); } };
+      $$('#trainSpeed button').forEach((b) => (b.onpointerdown = (e) => { if (e.button === 0) { play.train.speedIdx = +b.dataset.i; renderLogicPanel(); } }));
       $('#btnTrainReset').onclick = resetTrain;
       drawLossChart();
     }
@@ -1083,8 +1197,8 @@
     renderLogicPanel();
   }
   function resetTrain() {
-    const st = play.cfg, keep = play.train ? play.train.lrIdx : 2;
-    play.train = { brain: JSON.parse(JSON.stringify(st.init)), epochs: 0, losses: [], rates: new Set(), lrIdx: keep, auto: false, acc: 0, id: st.id, done: false };
+    const st = play.cfg, keep = play.train ? play.train.lrIdx : 2, sp = play.train ? play.train.speedIdx || 0 : 0;
+    play.train = { brain: JSON.parse(JSON.stringify(st.init)), epochs: 0, losses: [], rates: new Set(), lrIdx: keep, speedIdx: sp, auto: false, acc: 0, id: st.id, done: false };
     play.train.losses.push(sim.lossOf(st, play.train.brain));
     editor.setBrain(play.train.brain, true);
     renderLogicPanel();
@@ -1093,32 +1207,16 @@
     const t = play.train;
     if (play.cfg.type === 'train' && t && t.auto && !modalOpen()) {
       t.acc += dt;
-      while (t.acc >= 0.18 && t.auto) { t.acc -= 0.18; learnOnce(); }
+      const every = 0.18 / LEARN_SPEEDS[t.speedIdx || 0];
+      let n = 0;
+      while (t.acc >= every && t.auto && n < 8) { t.acc -= every; learnOnce(); n++; }
+      if (t.acc > every) t.acc = every;
     }
   }
   function drawLossChart() {
-    const cv = $('#lossChart');
-    if (!cv) return;
-    const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
-    const w = cv.clientWidth || 400, h = cv.clientHeight || 140;
-    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-    const g = cv.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#1d2128'; g.fillRect(0, 0, w, h);
-    const L = play.train.losses;
-    const maxY = Math.max(0.3, ...L);
-    const n = Math.max(20, L.length - 1);
-    const X = (i) => 40 + (i / n) * (w - 52), Y = (v) => h - 22 - (v / maxY) * (h - 36);
-    g.strokeStyle = 'rgba(152,164,194,0.25)'; g.lineWidth = 1;
-    g.font = '11px ' + getComputedStyle(document.body).fontFamily; g.fillStyle = '#98a4c2';
-    for (const v of [0, maxY / 2, maxY]) { g.beginPath(); g.moveTo(40, Y(v)); g.lineTo(w - 10, Y(v)); g.stroke(); g.textAlign = 'right'; g.fillText(v.toFixed(2), 36, Y(v) + 4); }
-    g.textAlign = 'left'; g.fillText('오차', 42, 13); g.textAlign = 'right'; g.fillText('학습 횟수 →', w - 10, h - 6);
-    g.strokeStyle = '#ff5d73'; g.lineWidth = 2.2; g.beginPath();
-    L.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v))));
-    g.stroke();
-    const last = L.length - 1;
-    g.fillStyle = '#ff5d73'; g.beginPath(); g.arc(X(last), Y(L[last]), 3.5, 0, 6.3); g.fill();
+    drawSeries($('#lossChart'), play.train.losses, '오차', '학습 횟수', '#ff5d73');
   }
+
 
   // 플레이 버튼들
   $('#btnRun').onclick = toggleRun;
@@ -1509,16 +1607,16 @@
         { target: q('#brainCanvas'), title: '그 입력일 때의 뇌', text: '이제 뇌 편집기가 A=1, B=0일 때를 보여 줘요. 동그라미 안의 숫자는 그 뉴런의 지금 값, 선 위를 흐르는 점은 신호예요.' },
         { target: q('#inspector'), title: '직접 해 보기: 다시 올리기', text: '선을 골라 세기를 0.5 이상(예: 1)으로 올려서 진리표의 모든 줄을 ✓로 만들어 보세요.', wait: () => sim.evalLogic(play.cfg, editor.getBrain()).ok },
         { target: q('#view-play .panel-title .tools'), title: '되돌리기와 지우기', text: '↶ 되돌리기(Ctrl+Z), ↷ 다시 하기(Ctrl+Y), 비우기. 선 하나를 지우려면 선을 우클릭하거나, 골라서 Delete를 누르세요.' },
-        { target: neuron('h1'), title: '활성화 함수', text: '히든·출력 뉴런을 클릭하면 아래에 설명과 "활성화 함수"가 나와요. 생명체 퍼즐에서는 ReLU, 시그모이드, 계단 같은 함수를, 연구실에서는 AND·OR·NOT·XOR 게이트와 소프트맥스까지 직접 넣을 수 있어요.' },
+        { target: neuron('h1'), title: '활성화 함수', text: '히든·출력 뉴런을 클릭하면 아래에 설명과 "활성화 함수"가 나와요. 3장 생명체 길찾기부터는 ReLU, 시그모이드, 계단 같은 함수를, 연구실에서는 AND·OR·NOT·XOR 게이트와 소프트맥스까지 직접 넣을 수 있어요.' },
         { target: q('#brief'), title: '힌트와 정답', text: '막히면 "힌트 보기"를 누르세요. 힌트는 개념 → 값 조절 → 거의 답, 세 단계예요. 다 보면 "정답 보기"가 나와요.' },
         { target: q('#view-play .play-head .goal'), title: '목표와 별', text: '노란 칩이 이 실험의 목표, 옆의 칩들은 별 조건이에요. 목표를 채우면 별 1개, 조건까지 채우면 별이 더 생겨요.' },
         { target: q('.stage-nav'), title: '이전 · 다음', text: '실험 사이를 오가는 버튼이에요. 다음 실험은 지금 실험을 깨야 열려요.' },
-        { target: q('.nav'), title: '메뉴', text: 'AI 배우기: 개념을 차례로 배우는 실험 · 사고력 퍼즐: 논리 회로와 생명체 길찾기 문제 · 연구실: 자유롭게 만들기 · 대결: 만든 뇌끼리 겨루기 · 개념 노트: 기본 용어와 개념 카드.' },
+        { target: q('.nav'), title: '메뉴', text: 'AI 배우기: 모든 실험 목록(분류 태그로 AI 개념/사고력만 골라 볼 수 있어요) · 연구실: 직접 잇거나 강화학습으로 뇌 만들기 · 대결: 만든 뇌끼리 겨루기 · 개념 노트: 기본 용어와 개념 카드.' },
         { target: q('#btnSettings'), title: '설정', text: '소리 크기, 단축키 목록, 이 안내 다시 보기가 있어요.' },
         { target: q('#btnCheck'), title: '마지막: 채점하기', text: '"채점하기"(또는 Space)를 눌러 튜토리얼을 마치세요!', wait: () => modalOpen() },
       ],
       arena: [
-        { target: q('#arenaCanvas'), title: '아레나', text: '생명체 퍼즐에서는 뇌가 몸을 움직여요. 흰 동그라미가 생명체 "도트", 노란 점이 먹이예요. 주황·노랑 부채꼴은 왼눈·오른눈의 시야예요.' },
+        { target: q('#arenaCanvas'), title: '아레나', text: '생명체 길찾기 장부터는 뇌가 몸을 움직여요. 흰 동그라미가 생명체 "도트", 노란 점이 먹이예요. 주황·노랑 부채꼴은 왼눈·오른눈의 시야예요.' },
         { target: q('#brainCanvas'), title: '감각과 바퀴', text: '왼쪽은 감각 뉴런(눈·더듬이·수염·상시), 오른쪽은 왼바퀴·오른바퀴예요. 오른바퀴가 더 빠르면 왼쪽으로 돌아요.' },
         { target: q('#btnRun'), title: '실행', text: '실행(Space)을 누르면 그다음부터는 뇌가 혼자 판단해요. 실행 중에 뇌를 고치면 처음부터 다시 준비돼요.' },
         { target: q('#btnReset'), title: '처음으로', text: '생명체를 출발점으로 되돌려요(R).' },
@@ -1528,23 +1626,25 @@
         { target: neuron('h1'), title: '활성화 함수 고르기', text: '이제 히든·바퀴 뉴런을 클릭하면 ReLU, 선형, 계단, 시그모이드, tanh 중에서 함수를 고를 수 있어요.' },
       ],
       reward: [
-        { title: '강화학습이란?', text: '지금까지는 사람이 뉴런을 잇거나(1장), 정답 표를 보고 배웠어요(2장). 강화학습은 정답이 없어요. 행동해 보고, 그 결과로 받은 "점수(보상)"가 커지는 쪽으로 스스로 바뀌어요. 개를 훈련할 때 잘하면 간식을 주는 것과 같아요.' },
-        { target: q('#arenaCanvas'), title: '에이전트와 환경', text: '생명체 "도트"가 배우는 쪽(에이전트), 아레나가 세상(환경)이에요. 지금은 아무것도 배우지 않은 뇌라서 가만히 있어요. 학습하는 동안 여기서 그때까지 찾은 가장 좋은 뇌가 움직여요.' },
-        { target: q('#brainCanvas'), title: '정책 = 뇌', text: '이번에는 선을 직접 잇지 않아요. 감각 → 바퀴 선이 모두 있고, 가중치(숫자)는 학습이 정해요. 이 가중치들이 "어떤 상황에서 어떻게 움직일까"라는 규칙, 곧 정책이에요.' },
+        { title: '강화학습이란?', text: '지금까지는 사람이 뉴런을 잇거나(1~3장), 정답 표를 보고 배웠어요(4장). 강화학습은 정답이 없어요. 행동해 보고, 그 결과로 받은 "점수(보상)"가 커지는 쪽으로 스스로 바뀌어요. 개를 훈련할 때 잘하면 간식을 주는 것과 같아요.' },
+        { target: q('#arenaCanvas'), title: '에이전트와 환경', text: '맨 위 큰 화면이에요. 생명체 "도트"가 배우는 쪽(에이전트), 아레나가 세상(환경)이에요. 지금은 아무것도 배우지 않은 뇌라서 가만히 있어요. 학습하는 동안 여기서 그때까지 찾은 가장 좋은 뇌가 움직여요. 마우스 휠로 내리면 점수 규칙과 뇌가 나와요.' },
+        { target: q('#brainCanvas'), title: '정책 = 뇌', text: '맨 아래에 있는 뇌예요. 이번에는 선을 직접 잇지 않아요. 감각 → 바퀴 선이 모두 있고, 가중치(숫자)는 학습이 정해요. 이 가중치들이 "어떤 상황에서 어떻게 움직일까"라는 규칙, 곧 정책이에요.' },
         { target: q('#rewardRules'), title: '당신이 할 일: 점수 정하기', text: '무엇에 몇 점을 줄지 정하세요. 좋은 일에는 +, 피해야 할 일에는 -. 생명체는 우리가 원한 것이 아니라 "점수를 준 것"을 배워요. 이것이 보상 설계예요.' },
         { target: q('#sigRow'), title: '탐험 정도', text: '한 세대마다 뇌를 얼마나 크게 바꿔 볼지예요. 너무 작으면 새로운 행동을 못 찾고, 너무 크면 좋았던 것까지 망가져요.' },
-        { target: q('#btnLearn'), title: '학습 시작', text: '한 세대마다 지금 뇌를 조금씩 바꾼 후보 6개를 시험해 보고, 점수를 더 많이 받은 후보가 있으면 그것을 남겨요(시행착오). 이걸 되풀이하면 뇌가 점점 바뀌어요.' },
+        { target: q('#btnLearn'), title: '학습 시작', text: '한 세대마다 지금 뇌를 조금씩 바꾼 후보 6개를 시험해 보고, 점수를 더 많이 받은 후보가 있으면 그것을 남겨요(시행착오). 이걸 되풀이하면 뇌가 점점 바뀌어요. 학습 중에 다시 누르면 멈춰요.' },
+        { target: q('#learnSpeed'), title: '학습 배속', text: '1×는 0.3초에 1세대씩 배워요. 2×·4×·8×로 올리면 더 빨리 배워요(컴퓨터가 느리면 화면이 잠깐씩 멈칫할 수 있어요).' },
         { target: q('#rewardChart'), title: '점수 그래프', text: '세대마다 받은 최고 점수예요. 선이 올라가면 점수를 더 잘 받게 됐다는 뜻이에요. 하지만 점수가 오른다고 진짜 목표를 이룬 건 아닐 수 있어요.' },
         { target: q('#rlStatus'), title: '진짜 목표로 시험', text: '세대마다 지금 뇌로 진짜 목표(먹이 몇 개 등)를 시험해요. 목표를 이루면 실험 성공이에요. 정해진 세대 안에 못 이루면 점수 규칙을 다시 생각해 보세요.' },
         { target: q('#rewardRules'), title: '직접 해 보기', text: '"먹이를 먹으면"에 +5를 주고, 학습 시작(또는 Space)을 눌러 보세요.', wait: () => play.rl && (play.rl.rw.eat || 0) > 0 && (play.rl.running || play.rl.state.gen > 0) },
-        { target: q('#arenaCanvas'), title: '지켜보기', text: '생명체가 점점 먹이 쪽으로 가는 법을 찾아가요. 더 좋은 뇌를 찾을 때마다 처음부터 다시 움직여요. 목표를 이루면 결과 창이 떠요.' },
+        { target: q('#arenaCanvas'), title: '지켜보기', text: '휠을 올려 위의 큰 화면을 보세요. 생명체가 점점 먹이 쪽으로 가는 법을 찾아가요. 더 좋은 뇌를 찾을 때마다 처음부터 다시 움직여요. 목표를 이루면 결과 창이 떠요.' },
       ],
 
       train: [
         { target: q('#logicPanel .truth'), title: '배우는 진리표', text: '학습 실험에서는 가중치를 직접 고치지 않아요. 뉴런이 이 진리표를 보면서 스스로 고쳐요.' },
         { target: () => { const e = $('#lrRange'); return e && e.closest('.set-row'); }, title: '학습률', text: '한 번 배울 때 가중치를 얼마나 크게 고칠지 정해요. 너무 작으면 느리고, 너무 크면 못 배워요.' },
         { target: q('#btnLearn1'), title: '한 번 배우기', text: '네 줄을 한 번씩 보고, 줄마다 틀린 만큼 가중치를 고쳐요. 이것을 학습 1번(에포크)이라고 해요.' },
-        { target: q('#btnAuto'), title: '자동 학습', text: '맞힐 때까지 계속 배워요(Space). 처음 가중치로(R)는 배운 것을 지우고 다시 시작해요.' },
+        { target: q('#btnAuto'), title: '자동 학습', text: '맞힐 때까지 계속 배워요(Space). 다시 누르면 멈춰요. 처음 가중치로(R)는 배운 것을 지우고 다시 시작해요.' },
+        { target: q('#trainSpeed'), title: '학습 배속', text: '1×~8×로 자동 학습을 빨리 돌릴 수 있어요.' },
         { target: q('#lossChart'), title: '오차 그래프', text: '빨간 선이 내려갈수록 잘 배우고 있다는 뜻이에요.' },
         { target: q('#brainCanvas'), title: '바뀌는 가중치', text: '선 위 숫자가 학습할 때마다 스스로 바뀌어요. 선이나 뉴런을 클릭하면 지금 값을 볼 수 있어요.' },
       ],
@@ -1574,6 +1674,7 @@
       if (pv) pv.onclick = () => { idx--; render(); };
       const nx = card.querySelector('[data-t="next"]');
       if (nx) nx.onclick = next;
+      bringIntoView(st);
       place();
     }
     function rectOf(st) {
@@ -1581,6 +1682,15 @@
       if (!t) return null;
       const r = t.getBoundingClientRect ? t.getBoundingClientRect() : t;
       return r.width || r.height ? r : null;
+    }
+    // 비출 곳이 화면 밖이면 그곳이 보이도록 페이지를 굴린다(보상 실험처럼 세로로 긴 화면용)
+    function bringIntoView(st) {
+      const r = rectOf(st);
+      if (!r) return;
+      const top = 70, bottom = innerHeight - 20;
+      if (r.top >= top && r.bottom <= bottom) return;
+      const want = r.height > bottom - top ? r.top - top : r.top - (innerHeight - r.height) / 2;
+      window.scrollBy({ top: want, behavior: 'smooth' });
     }
     function place() {
       const st = steps[idx];

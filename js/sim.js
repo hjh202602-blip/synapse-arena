@@ -550,13 +550,23 @@
     return ep.world.status === 'success' && (cfg.maxHits == null || ep.stats.hit <= cfg.maxHits);
   }
   // 시행착오 1세대: 지금 뇌를 조금씩 흔든 후보 K개를 시험해서, 보상이 더 큰 것이 있으면 바꾼다.
+  // 학습할 뇌 만들기: 정해 둔 모양(rlTemplate: 사람이 이은 선)이 있으면 그 선들의 가중치만 학습하고,
+  // 없으면 감각 → 두 바퀴를 모두 이은 모양을 쓴다.
+  function rlBuild(cfg, theta) {
+    if (!cfg.rlTemplate) return rlBrain(cfg.sensors, theta);
+    const t = cfg.rlTemplate;
+    const b = { hidden: (t.hidden || []).map((h) => Object.assign({}, h)), synapses: t.synapses.map((x, k) => ({ from: x.from, to: x.to, w: Math.round((theta[k] || 0) * 100) / 100 })) };
+    if (t.fn) b.fn = Object.assign({}, t.fn);
+    return b;
+  }
   function rlInit(cfg) {
+    if (cfg.rlTemplate) return { theta: cfg.rlTemplate.synapses.map((x) => Number(x.w) || 0), bestR: null, gen: 0, history: [], seed: cfg.id };
     const n = rlPairs(cfg.sensors).length;
     return { theta: new Array(n).fill(0), bestR: null, gen: 0, history: [], seed: cfg.id };
   }
   // 후보 하나를 출발 방향 두 개로 시험해 평균 보상을 낸다(한 번의 운에 덜 휘둘리게)
   function rlScore(cfg, theta, rw) {
-    const brain = rlBrain(cfg.sensors, theta);
+    const brain = rlBuild(cfg, theta);
     let sum = 0;
     for (const da of [-0.25, 0.25]) {
       const c2 = Object.assign({}, cfg, { start: Object.assign({}, cfg.start, { a: cfg.start.a + da }) });
@@ -684,6 +694,6 @@
     compileBrain, mirrorBrain, createWorld, step, runHeadless, lurePos,
     evalStars, condText, checkCond, usedHidden,
     evalRow, evalLogic, trainEpoch, lossOf,
-    REWARD_EVENTS, rlPairs, rlBrain, runEpisode, objectiveOk, rlInit, rlGeneration,
+    REWARD_EVENTS, rlPairs, rlBrain, rlBuild, runEpisode, objectiveOk, rlInit, rlGeneration,
   };
 })();
