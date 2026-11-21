@@ -101,6 +101,7 @@
     or:      { name: 'OR 게이트',   short: 'OR',   kind: 'gate', desc: '들어온 신호 중 하나라도 0.5 이상이면 1.' },
     not:     { name: 'NOT 게이트',  short: 'NOT',  kind: 'gate', desc: '들어온 신호가 하나도 0.5 이상이 아니면 1. 신호가 켜지면 0.' },
     xor:     { name: 'XOR 게이트',  short: 'XOR',  kind: 'gate', desc: '0.5 이상인 신호가 홀수 개면 1.' },
+    mul:     { name: '곱(×)',       short: '×',    kind: 'act',  desc: '들어온 신호(보낸 값 × 가중치)를 모두 곱한다. 하나라도 0이면 0이 되므로 신호를 통과시키거나 막는 "문(게이트)"이 된다.' },
     softmax: { name: '소프트맥스',   short: 'soft', kind: 'group', desc: '소프트맥스로 정한 뉴런끼리 값을 나눠 가져서 합이 1이 된다(확률처럼). 바퀴 두 개에 쓰면 속도를 나눠 가진다.' },
   };
   const FUNC_IDS = Object.keys(FUNCS);
@@ -118,6 +119,12 @@
         if (fn === 'or') return on > 0 ? 1 : 0;
         if (fn === 'not') return on === 0 ? 1 : 0;
         return on % 2;
+      }
+      case 'mul': {
+        if (!list.length) return 0;
+        let p = 1;
+        for (let k = 0; k < list.length; k++) p *= act[list[k][0]] * list[k][1];
+        return p < -10 ? -10 : p > 10 ? 10 : p;
       }
       default: { const hi = isMotor ? MOTOR_MAX : 1; return sum < 0 ? 0 : sum > hi ? hi : sum; }
     }
@@ -676,6 +683,13 @@
     if (cond.type === 'inertia') return world.inertia != null && world.inertia <= cond.max + 1e-9;
     if (cond.type === 'kmSteps') return (world.steps || 0) <= cond.max;
     if (cond.type === 'kTried') return (world.kTried || 0) >= cond.min;
+    if (cond.type === 'steps') return (world.steps || 0) <= cond.max;
+    if (cond.type === 'sweeps') return (world.sweeps || 0) <= cond.max;
+    if (cond.type === 'episodes') return (world.episodes || 0) <= cond.max;
+    if (cond.type === 'gammaMax') return world.gamma != null && world.gamma <= cond.max + 1e-9;
+    if (cond.type === 'confidence') return (world.confidence || 0) >= cond.min - 1e-9;
+    if (cond.type === 'optimizer') return world.opt === cond.opt;
+    if (cond.type === 'startFixed') return !world.startMoved;
     return false;
   }
   function condText(cond) {
@@ -695,6 +709,13 @@
     if (cond.type === 'inertia') return `거리 합 ${cond.max.toFixed(2)} 이하로 묶기`;
     if (cond.type === 'kmSteps') return cond.max === 0 ? '한 걸음 버튼 없이 손으로만' : `${cond.max}걸음 안에`;
     if (cond.type === 'kTried') return `무리 수를 ${cond.min}가지 이상 써 보기`;
+    if (cond.type === 'steps') return `${cond.max}걸음 안에 바닥에 닿기`;
+    if (cond.type === 'sweeps') return `퍼뜨리기 ${cond.max}번 이하`;
+    if (cond.type === 'episodes') return `${cond.max}판 안에 배우기`;
+    if (cond.type === 'gammaMax') return `할인율 γ를 ${cond.max} 이하로`;
+    if (cond.type === 'confidence') return `정답 확률 평균 ${Math.round(cond.min * 100)}% 이상`;
+    if (cond.type === 'optimizer') return `${{ gd: '경사 하강', momentum: '모멘텀', adam: 'Adam' }[cond.opt]}으로 풀기`;
+    if (cond.type === 'startFixed') return '출발점을 옮기지 않고';
     return '';
   }
 
@@ -709,6 +730,13 @@
     ins.forEach((id, k) => { inp[id] = row[k]; });
     rt.step(inp);
     const ys = outs.map((id) => rt.act[id]);
+    if (cfg && cfg.classes) {
+      // 여러 갈래 분류: 한 줄 = [입력들..., 정답 번호]. 가장 큰 출력의 번호가 답
+      let pred = 0;
+      ys.forEach((y, k) => { if (y > ys[pred] + 1e-12) pred = k; });
+      const target = row[ins.length];
+      return { y: ys[0], ys, ok: pred === target, pred, p: ys[target], act: Object.assign({}, rt.act) };
+    }
     const ok = ys.every((y, k) => (y >= 0.5 ? 1 : 0) === row[ins.length + k]);
     return { y: ys[0], ys, ok, act: Object.assign({}, rt.act) };
   }
@@ -722,6 +750,7 @@
   // 히든 뉴런이 있으면 오차를 거꾸로 나눠 보낸다(역전파). 활성 함수는 0~1 자르기라서
   // 0과 1 사이에 있을 때만 기울기가 1이다.
   function trainEpoch(cfg, brain, lr) {
+    if (cfg.loss === 'ce') return trainEpochCE(cfg, brain, lr);
     const hidden = (brain.hidden || []).map((h) => h.id);
     let loss = 0;
     const ins = cfg.inputs || ['inA', 'inB'];
@@ -754,7 +783,28 @@
     }
     return loss / (cfg.rows.length * outs.length);
   }
+  // 소프트맥스 + 교차 엔트로피: 출력 k의 오차 신호는 (확률 - 정답), 손실은 -log(정답의 확률)
+  function trainEpochCE(cfg, brain, lr) {
+    const ins = cfg.inputs, outs = cfg.outputs;
+    let loss = 0;
+    for (const row of cfg.rows) {
+      const act = { bias: 1 };
+      ins.forEach((id, k) => { act[id] = row[k]; });
+      const z = outs.map((o) => brain.synapses.filter((s) => s.to === o).reduce((a, s) => a + (act[s.from] || 0) * s.w, 0));
+      const m = Math.max(...z), e = z.map((v) => Math.exp(v - m)), sum = e.reduce((a, v) => a + v, 0);
+      const p = e.map((v) => v / sum), target = row[ins.length];
+      loss -= Math.log(Math.max(1e-12, p[target]));
+      const dz = {};
+      outs.forEach((o, k) => { dz[o] = p[k] - (k === target ? 1 : 0); });
+      for (const s of brain.synapses) {
+        if (dz[s.to] === undefined) continue;
+        s.w = clamp(s.w - lr * dz[s.to] * (act[s.from] || 0), -MAX_SYNAPSE_W, MAX_SYNAPSE_W);
+      }
+    }
+    return loss / cfg.rows.length;
+  }
   function lossOf(cfg, brain) {
+    if (cfg.loss === 'ce') return cfg.rows.reduce((a, r) => a - Math.log(Math.max(1e-12, evalRow(brain, r, cfg).p)), 0) / cfg.rows.length;
     const k = (cfg.inputs || ['inA', 'inB']).length, outs = cfg.outputs || ['out'];
     return cfg.rows.reduce((a, r) => { const ys = evalRow(brain, r, cfg).ys; return a + ys.reduce((b, y, j) => b + (r[k + j] - y) ** 2, 0); }, 0) / (cfg.rows.length * outs.length);
   }
@@ -767,16 +817,146 @@
     const rt = compileBrain(brain);
     const seqs = cfg.seqs.map((sq) => {
       for (const id in rt.act) rt.act[id] = 0; // 새 순서: 기억을 비우고 시작
+      const ins = cfg.seqInputs || ['inA'];
       const steps = sq.x.map((x, t) => {
-        const inp = { bias: 1, inA: x };
+        const inp = { bias: 1 };
+        ins.forEach((id, k) => { inp[id] = Array.isArray(x) ? x[k] : x; });
         for (const m in MEM_SRC) inp[m] = rt.act[MEM_SRC[m]] || 0;
         rt.step(inp);
         const y = rt.act.out, target = sq.t[t];
-        return { x, y, target, ok: target == null || (y >= 0.5 ? 1 : 0) === target, act: Object.assign({}, rt.act) };
+        // tol이 있으면 값이 목표와 tol 안으로 가까워야 맞다(0.5 문턱 대신)
+        const ok = target == null || (cfg.tol != null ? Math.abs(y - target) <= cfg.tol + 1e-9 : (y >= 0.5 ? 1 : 0) === target);
+        return { x, y, target, ok, act: Object.assign({}, rt.act) };
       });
       return { steps, ok: steps.every((st) => st.ok) };
     });
     return { seqs, ok: seqs.every((q) => q.ok) };
+  }
+
+
+  // ---- 오차 지형(최적화): 가중치 두 개(w1, w2)를 오차가 낮은 쪽으로 옮긴다 ----------------
+  const FIT_X = [0, 1, 2, 3], FIT_Y = [1, 3, 5, 7]; // y = 2x + 1을 맞히는 뉴런 하나
+  const SURFACES = {
+    fit: (w, b) => FIT_X.reduce((a, x, i) => a + (w * x + b - FIT_Y[i]) ** 2, 0) / FIT_X.length,
+    valley: (a, b) => 0.04 * (a - 1) ** 2 + 2.5 * (b - 0.5) ** 2,
+    bumpy: (a, b) => 1.4 - 1.2 * Math.exp(-((a - 1.6) ** 2 + (b - 1.4) ** 2) / 1.0) - 0.3 * Math.exp(-((a + 1.4) ** 2 + (b + 1.2) ** 2) / 0.3) + 0.03 * (a * a + b * b),
+    scales: (a, b) => 4 * (a - 1) ** 2 + 0.004 * (b - 2) ** 2,
+  };
+  const descF = (cfg, w) => SURFACES[cfg.surface](w[0], w[1]);
+  function descGrad(cfg, w) {
+    const h = 1e-5, f = SURFACES[cfg.surface];
+    return [(f(w[0] + h, w[1]) - f(w[0] - h, w[1])) / (2 * h), (f(w[0], w[1] + h) - f(w[0], w[1] - h)) / (2 * h)];
+  }
+  function descInit(start) { return { w: start.slice(), v: [0, 0], m: [0, 0], q: [0, 0], t: 0, last: Infinity, path: [start.slice()] }; }
+  // 한 걸음: 경사 하강 / 모멘텀(속도를 기억) / Adam(가중치마다 걸음 크기를 따로 맞춤)
+  function descStep(cfg, s, o) {
+    const g = descGrad(cfg, s.w);
+    s.t++;
+    let d;
+    if (o.opt === 'adam') {
+      const b1 = 0.9, b2 = 0.999;
+      s.m = s.m.map((m, i) => b1 * m + (1 - b1) * g[i]);
+      s.q = s.q.map((q, i) => b2 * q + (1 - b2) * g[i] * g[i]);
+      d = s.m.map((m, i) => (o.lr * (m / (1 - b1 ** s.t))) / (Math.sqrt(s.q[i] / (1 - b2 ** s.t)) + 1e-8));
+    } else if (o.opt === 'momentum') {
+      s.v = s.v.map((v, i) => o.beta * v + g[i]);
+      d = s.v.map((v) => o.lr * v);
+    } else d = g.map((x) => o.lr * x);
+    s.w = s.w.map((w, i) => w - d[i]);
+    s.last = Math.hypot(d[0], d[1]);
+    s.path.push(s.w.slice());
+  }
+  // 성공 = 공이 바닥(금색 원) 안에서 거의 멈춤. 실패 = 지형 밖으로 튀어 나감
+  const descDiverged = (cfg, s) => !Number.isFinite(s.w[0] + s.w[1]) || Math.abs(s.w[0]) > 40 || Math.abs(s.w[1]) > 40;
+  const descArrived = (cfg, s) => Math.hypot(s.w[0] - cfg.min[0], s.w[1] - cfg.min[1]) <= cfg.goalR && s.last < 0.03;
+  function descRun(cfg, o, start, max) {
+    const s = descInit(start || cfg.start);
+    for (let i = 0; i < (max || cfg.maxSteps); i++) {
+      descStep(cfg, s, o);
+      if (descDiverged(cfg, s)) return { ok: false, diverged: true, steps: s.t, s };
+      if (descArrived(cfg, s)) return { ok: true, steps: s.t, s };
+    }
+    return { ok: false, steps: s.t, s };
+  }
+
+  // ---- 격자 세상(가치와 Q러닝) ------------------------------------------------
+  // 칸: '#' 벽, 'S' 출발, '.' 빈칸, 그 밖의 글자는 끝나는 칸(보상은 cfg.rewards[글자])
+  const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // 위, 오른쪽, 아래, 왼쪽
+  function gridOf(cfg) {
+    const rows = cfg.grid, H = rows.length, W = rows[0].length;
+    let start = 0;
+    const cell = [];
+    rows.forEach((r, y) => [...r].forEach((ch, x) => { cell.push(ch); if (ch === 'S') start = y * W + x; }));
+    const terminal = (i) => cfg.rewards[cell[i]] !== undefined;
+    return { W, H, cell, start, terminal, N: W * H };
+  }
+  function gridMove(g, i, a) {
+    const x = i % g.W, y = Math.floor(i / g.W), nx = x + DIRS[a][0], ny = y + DIRS[a][1];
+    if (nx < 0 || ny < 0 || nx >= g.W || ny >= g.H) return i;
+    const j = ny * g.W + nx;
+    return g.cell[j] === '#' ? i : j;
+  }
+  // 한 번 움직였을 때 받는 보상: 끝나는 칸에 들어가면 그 칸의 보상, 아니면 걸음 보상(보통 0)
+  const gridReward = (cfg, g, j) => (g.terminal(j) ? cfg.rewards[g.cell[j]] : cfg.stepReward || 0);
+  // 가치 퍼뜨리기(벨만): 모든 칸에서 "한 걸음 보상 + γ × 다음 칸의 가치" 중 가장 큰 값
+  function valueSweep(cfg, g, V, gamma) {
+    return V.map((v, i) => {
+      if (g.cell[i] === '#' || g.terminal(i)) return 0;
+      let best = -Infinity;
+      for (let a = 0; a < 4; a++) { const j = gridMove(g, i, a); best = Math.max(best, gridReward(cfg, g, j) + (g.terminal(j) ? 0 : gamma * V[j])); }
+      return best;
+    });
+  }
+  // 어떤 칸에서 각 행동의 값: 가치 퍼뜨리기는 V로, Q러닝은 Q표로 바로
+  const vActionValues = (cfg, g, V, gamma, i) => [0, 1, 2, 3].map((a) => { const j = gridMove(g, i, a); return gridReward(cfg, g, j) + (g.terminal(j) ? 0 : gamma * V[j]); });
+  // Q러닝 한 판: ε 확률로 아무 방향(탐험), 아니면 Q가 가장 큰 방향(같으면 무작위)
+  function qEpisode(cfg, g, Q, o, rng) {
+    let i = g.start, t = 0, total = 0;
+    const path = [i];
+    for (; t < (cfg.maxT || 60); t++) {
+      const q = Q[i];
+      let a;
+      if (rng() < o.eps) a = Math.floor(rng() * 4);
+      else { const m = Math.max(...q); const best = [0, 1, 2, 3].filter((k) => q[k] >= m - 1e-12); a = best[Math.floor(rng() * best.length)]; }
+      const j = gridMove(g, i, a), r = gridReward(cfg, g, j);
+      const target = r + (g.terminal(j) ? 0 : o.gamma * Math.max(...Q[j]));
+      q[a] += o.alpha * (target - q[a]);
+      total += r;
+      i = j;
+      path.push(i);
+      if (g.terminal(i)) break;
+    }
+    return { path, total, end: i };
+  }
+  // 지금 배운 대로(가장 좋은 쪽만) 걸었을 때의 길. 같은 칸을 다시 밟으면 갇힌 것
+  function greedyPath(cfg, g, valuesAt) {
+    let i = g.start;
+    const path = [i], seen = new Set([i]);
+    for (let t = 0; t < 60; t++) {
+      const q = valuesAt(i);
+      const m = Math.max(...q);
+      if (m <= 1e-12 && Math.min(...q) >= -1e-12) return { path, end: i, stuck: true }; // 아직 아무것도 모름
+      const a = q.indexOf(m);
+      const j = gridMove(g, i, a);
+      path.push(j);
+      if (g.terminal(j)) return { path, end: j, stuck: false };
+      if (seen.has(j)) return { path, end: j, stuck: true };
+      seen.add(j);
+      i = j;
+    }
+    return { path, end: i, stuck: true };
+  }
+  // 출발에서 각 칸까지 가장 짧은 걸음 수(벽은 못 지나감, 끝나는 칸은 들어가면 끝)
+  function gridShortest(cfg, g, ch) {
+    const dist = new Array(g.N).fill(Infinity);
+    dist[g.start] = 0;
+    const qu = [g.start];
+    while (qu.length) {
+      const i = qu.shift();
+      if (g.terminal(i)) continue;
+      for (let a = 0; a < 4; a++) { const j = gridMove(g, i, a); if (dist[j] === Infinity) { dist[j] = dist[i] + 1; qu.push(j); } }
+    }
+    return Math.min(...g.cell.map((c, i) => (c === ch ? dist[i] : Infinity)));
   }
 
   // ---- 무리 짓기(비지도 학습, k-평균) -------------------------------------------
@@ -832,6 +1012,8 @@
     evalStars, condText, checkCond, usedHidden,
     evalRow, evalLogic, trainEpoch, lossOf, OUT_IDS, MEM_SRC, evalSeq,
     kmAssign, kmStep, kmInertia, kmConverged, kmMatches, kmRun, kmBest,
+    SURFACES, descF, descGrad, descInit, descStep, descDiverged, descArrived, descRun,
+    DIRS, gridOf, gridMove, gridReward, valueSweep, vActionValues, qEpisode, greedyPath, gridShortest,
     parseImg, convMap, maxPool, evalVision, visionStats,
     REWARD_EVENTS, rlPairs, rlBrain, rlBuild, runEpisode, objectiveOk, rlInit, rlGeneration,
   };

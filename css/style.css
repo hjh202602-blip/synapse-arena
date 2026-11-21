@@ -424,6 +424,8 @@ canvas { -webkit-user-select: none; user-select: none; -webkit-touch-callout: no
 .tag { display: inline-block; font-family: var(--font); font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; margin-left: 6px; vertical-align: 1px; letter-spacing: 0; }
 .tag.t-ai { color: var(--exc); background: var(--exc-soft); }
 .tag.t-think { color: var(--gold-ink); background: var(--gold-soft); }
+.tag.t-adv { color: var(--hidden); background: rgba(108, 86, 163, 0.13); }
+:root[data-theme="dark"] .tag.t-adv { background: rgba(195, 166, 255, 0.16); }
 .play-head h2 .tag { font-size: 12px; }
 .tag-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 26px 0 0; }
 .tag-filter .cnt { font-family: var(--mono); font-size: 11px; opacity: 0.7; margin-left: 2px; }
@@ -571,3 +573,27 @@ table.truth.many th { white-space: nowrap; }
   table.truth.many td, table.truth.many th { padding: 8px 5px; }
   table.truth td.c-code { font-size: 11px; }
 }
+
+/* ---------- 관련 논문 ---------- */
+.modal.modal-wide { width: min(680px, 100%); }
+.paper-groups { display: flex; flex-direction: column; gap: 18px; margin: 14px 0 6px; }
+.paper-group h4 { font-size: 14px; margin-bottom: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.paper-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.paper-list li { padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.paper-list a { color: var(--accent); font-weight: 700; text-decoration: none; line-height: 1.45; }
+.paper-list a:hover { text-decoration: underline; }
+.paper-list .ext { font-weight: 500; }
+.paper-list .pmeta { font-size: 12.5px; color: var(--faint); margin-top: 2px; }
+.paper-list p { margin: 4px 0 0; font-size: 13px; color: var(--muted); line-height: 1.55; }
+details.papers { border-top: 1px solid var(--line); padding-top: 10px; }
+details.papers summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: 13.5px; }
+details.papers .paper-list { margin-top: 10px; }
+.chapter-head .paper-btn { flex: none; }
+
+/* ---------- 심화: 오차 지형 · 격자 세상 ---------- */
+#descCanvas { width: min(100%, 460px); aspect-ratio: 1 / 1; border-radius: 10px; display: block; touch-action: none; }
+#gridCanvas { width: min(100%, 520px); display: block; border-radius: 10px; }
+.fit-inset h4 { font-size: 14px; margin-bottom: 8px; }
+.fit-inset h4 .muted { font-size: 12px; font-weight: 500; }
+#fitCanvas { width: min(100%, 420px); display: block; border-radius: 10px; }
+#optSeg button, #lrSeg button, #betaSeg button, #gammaSeg button, #alphaSeg button, #epsSeg button { min-width: 40px; }

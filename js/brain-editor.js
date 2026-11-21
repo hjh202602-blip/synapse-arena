@@ -37,7 +37,7 @@
     // outputs: 출력 뉴런 목록, fixedHidden: 히든 뉴런 수를 고정(추가·삭제 불가), minHidden: 처음부터 둘 히든 뉴런 수
     // readOnly: 보기만 가능(학습 실험)
     // funcs: 고를 수 있는 활성화 함수 목록(1개뿐이면 함수 고르기를 숨긴다)
-    let cfg = { sensors: SENSORS.map((s) => s.id), outputs: ['motorL', 'motorR'], maxHidden: 0, fixedHidden: 0, minHidden: 0, readOnly: false, funcs: ['clamp'], noSkip: false };
+    let cfg = { sensors: SENSORS.map((s) => s.id), outputs: ['motorL', 'motorR'], maxHidden: 0, fixedHidden: 0, minHidden: 0, readOnly: false, funcs: ['clamp'], noSkip: false, fixedFn: null, hiddenPos: null };
     let brain = { hidden: [], synapses: [] };
     let sel = null;           // {type:'syn', i} | {type:'neuron', id}
     let hover = null;         // 같은 모양
@@ -99,7 +99,8 @@
       const need = Math.max(cfg.fixedHidden || 0, cfg.minHidden || 0);
       const SLOTS = [0.3, 0.7, 0.12, 0.88, 0.5, 0.2];
       for (let n = 1; out.hidden.length < need && n <= 9; n++) {
-        if (!out.hidden.some((h) => h.id === 'h' + n)) out.hidden.push({ id: 'h' + n, x: 0.5, y: SLOTS[out.hidden.length] ?? 0.5 });
+        const hp = cfg.hiddenPos && cfg.hiddenPos['h' + n];
+        if (!out.hidden.some((h) => h.id === 'h' + n)) out.hidden.push({ id: 'h' + n, x: hp ? hp[0] : 0.5, y: hp ? hp[1] : SLOTS[out.hidden.length] ?? 0.5 });
       }
       const ids = new Set(out.hidden.map((h) => h.id));
       for (const s of Array.isArray(b && b.synapses) ? b.synapses : []) {
@@ -121,6 +122,8 @@
         const f = fnSrc[id];
         if (fnIds.has(id) && f !== 'clamp' && cfg.funcs.includes(f) && SA.sim.FUNCS[f]) (out.fn = out.fn || {})[id] = f;
       }
+      // 실험이 정해 둔 함수(예: 소프트맥스 출력)는 언제나 그대로 둔다
+      if (cfg.fixedFn) out.fn = Object.assign(out.fn || {}, cfg.fixedFn);
       return out;
     }
     function clamp01(v) { return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.5; }

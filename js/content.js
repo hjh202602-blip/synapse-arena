@@ -1092,6 +1092,324 @@
     },
   });
 
+  // ===================================================================
+  // 심화 11장 골짜기를 내려가는 뇌 (4장 심화): 오차 지형과 최적화 방법
+  // 가중치 두 개를 가로·세로로 놓으면 오차는 지형이 되고, 학습은 공이 골짜기 바닥으로 굴러가는 일이다.
+  // ===================================================================
+  const DESC_BASE = { type: 'descent', maxHidden: 0, funcs: FUNCS_BASIC, sensors: [], outputs: [], lrs: [0.01, 0.05, 0.1, 0.2, 0.3, 0.5], opts: ['gd'], betas: [0.9], lr0: 0.01 };
+  const DESCENT = [
+    {
+      id: 'D1', title: '오차 지형', concept: 'landscape', tour: 'descent',
+      surface: 'fit', start: [-0.5, 4], min: [2, 1], goalR: 0.15, maxSteps: 100, view: [-1, 4, -1.5, 4.5], axes: ['가중치 w', '편향 b'],
+      brief: '뉴런 하나(출력 = w × 입력 + b)가 점 네 개를 지나는 직선을 맞히려 한다. 가중치 w를 가로, 편향 b를 세로에 놓고 모든 자리의 오차를 색으로 칠하면 "오차 지형"이 된다. 어두운 곳일수록 오차가 작다. 학습(경사 하강)은 공을 지금 자리에서 가장 가파르게 내려가는 쪽으로 한 걸음씩 옮기는 일이다. 학습률은 한 걸음의 크기다. 공을 바닥(금색 원)에 멈추게 하자.',
+      goalText: '공을 바닥(금색 원)에 멈추게 하기',
+      hints: ['학습률이 너무 작으면 공이 아주 천천히 내려가서 100걸음 안에 바닥에 못 닿는다. 너무 크면 골짜기 건너편으로 튀어 나간다.',
+        '값 조절: 학습률 0.05면 100걸음 안에 못 닿고, 0.1이면 53걸음, 0.2면 26걸음 만에 멈춘다. 0.3부터는 걸음이 너무 커서 지형 밖으로 튀어 나간다.',
+        '학습률 0.2로 "멈출 때까지".'],
+      solution: { opt: 'gd', lr: 0.2 },
+      stars: [{ type: 'steps', max: 60 }, { type: 'steps', max: 30 }],
+    },
+    {
+      id: 'D2', title: '좁은 골짜기', concept: 'momentum', opts: ['gd', 'momentum'], betas: [0.5, 0.9],
+      surface: 'valley', start: [-2.5, 1.6], min: [1, 0.5], goalR: 0.15, maxSteps: 80, view: [-3, 2.5, -1, 2.2], axes: ['가중치 1', '가중치 2'],
+      brief: '이번 지형은 한쪽으로 길고 좁은 골짜기다. 두 입력의 크기가 아주 다르면(예: 키는 170, 나이는 15) 이런 지형이 생긴다. 경사 하강은 가파른 벽 사이를 지그재그로 튀기만 하고 바닥 쪽으로는 거의 못 나아간다. 모멘텀은 지난 걸음의 속도를 기억해서 같은 쪽으로 계속 가는 힘(관성)을 더한다. β는 속도를 얼마나 기억할지다.',
+      goalText: '80걸음 안에 공을 바닥에 멈추게 하기',
+      hints: ['경사 하강으로는 학습률을 어떻게 골라도 80걸음 안에 못 닿는다(0.5는 튀어 나간다). 최적화 방법을 모멘텀으로 바꿔 보자.',
+        '값 조절: 모멘텀 β 0.9면 학습률 0.05에서 55걸음, 0.3에서 58걸음. β 0.5에 학습률 0.5면 36걸음 만에 닿는다. β가 크면 관성이 커서 바닥을 지나쳤다가 돌아온다.',
+        '모멘텀, β 0.5, 학습률 0.5로 "멈출 때까지".'],
+      solution: { opt: 'momentum', beta: 0.5, lr: 0.5 },
+      stars: [{ type: 'steps', max: 60 }, { type: 'steps', max: 40 }],
+    },
+    {
+      id: 'D3', title: '작은 웅덩이', concept: 'escape', opts: ['gd', 'momentum'], betas: [0.5, 0.9], dragStart: true,
+      surface: 'bumpy', start: [-2.3, -2.1], min: [1.56, 1.37], goalR: 0.2, maxSteps: 120, view: [-3, 3, -3, 3], axes: ['가중치 1', '가중치 2'],
+      brief: '이번 지형에는 깊은 바닥(금색 원) 말고도 출발점 가까이에 작은 웅덩이가 있다. 경사 하강은 "지금 발밑에서 내려가는 쪽"만 보기 때문에 웅덩이에 빠지면 거기가 바닥인 줄 알고 멈춘다(지역 최소). 관성으로 웅덩이를 넘어가거나, 출발점을 옮겨 보자. 출발점(흰 동그라미)은 끌어서 옮길 수 있다.',
+      goalText: '깊은 바닥(금색 원)에 공을 멈추게 하기',
+      hints: ['먼저 경사 하강으로 "멈출 때까지"를 눌러 어디에 갇히는지 보자. 경사 하강은 어떤 학습률로도 작은 웅덩이를 못 벗어난다.',
+        '값 조절: 모멘텀 β 0.9에 학습률 0.3이면 52걸음, 0.5면 50걸음 만에 웅덩이를 넘어 깊은 바닥에 닿는다. β 0.5는 관성이 모자라 웅덩이에 남는다. 출발점을 깊은 골짜기 쪽(오른쪽 위)으로 옮기면 경사 하강으로도 된다.',
+        '출발점은 그대로 두고 모멘텀, β 0.9, 학습률 0.5로 "멈출 때까지".'],
+      solution: { opt: 'momentum', beta: 0.9, lr: 0.5 },
+      stars: [{ type: 'steps', max: 70 }, { type: 'startFixed' }],
+    },
+    {
+      id: 'D4', title: '걸음을 따로 맞추기', concept: 'adam', boss: true, opts: ['gd', 'momentum', 'adam'], betas: [0.9],
+      surface: 'scales', start: [-1.5, -2.5], min: [1, 2], goalR: 0.15, maxSteps: 80, view: [-2.5, 3.5, -3.5, 3.5], axes: ['가중치 1', '가중치 2'],
+      brief: '이번 지형은 가로로는 아주 가파르고 세로로는 거의 평평하다. 학습률 하나로는 둘 다 맞출 수 없다. 크게 하면 가파른 쪽에서 튀어 나가고, 작게 하면 평평한 쪽에서 기어간다. Adam은 가중치마다 지금까지의 기울기 크기를 기억해서 걸음 크기를 따로 맞춘다. 요즘 신경망 학습에서 가장 많이 쓰는 방법이다.',
+      goalText: '80걸음 안에 공을 바닥에 멈추게 하기',
+      hints: ['경사 하강과 모멘텀은 어떤 학습률로도 80걸음 안에 못 닿는다. 세로 방향 기울기가 너무 작아서다.',
+        '값 조절: Adam은 기울기를 그 크기로 나눠서 쓰기 때문에 평평한 쪽에서도 학습률만큼씩 꾸준히 간다. 학습률 0.1이면 63걸음, 0.2면 59걸음, 0.3이면 60걸음, 0.5면 65걸음.',
+        'Adam, 학습률 0.2로 "멈출 때까지".'],
+      solution: { opt: 'adam', lr: 0.2 },
+      stars: [{ type: 'steps', max: 70 }, { type: 'steps', max: 60 }],
+    },
+  ].map((st) => Object.assign({}, DESC_BASE, st));
+
+  // ===================================================================
+  // 심화 12장 가치를 배우는 뇌 (5장 심화): 가치 함수, 할인율, Q러닝, 탐험
+  // ===================================================================
+  const GRID_BASE = { type: 'grid', maxHidden: 0, funcs: FUNCS_BASIC, sensors: [], outputs: [], gamma: 0.9, target: 'G', maxT: 60 };
+  const VALUE = [
+    {
+      id: 'Q1', title: '가치 퍼뜨리기', concept: 'valuefn', tour: 'grid', mode: 'vi',
+      grid: ['S..#....', '.#.#.##.', '.#...#..', '.####.#.', '......#G'], rewards: { G: 10 },
+      brief: '5장에서는 행동마다 점수를 줬다. 이번에는 "이 칸에 있으면 앞으로 점수를 얼마나 받을까"를 칸마다 적는다. 이것이 가치다. 가치는 "한 걸음 가서 받는 보상 + 할인율 γ × 도착한 칸의 가치" 중 가장 좋은 것이다(벨만 방정식). 목표(+10)에서부터 한 번 퍼뜨릴 때마다 한 칸씩 가치가 번진다. 출발 칸까지 가치가 닿으면 화살표만 따라가면 된다.',
+      goalText: '출발에서 화살표를 따라 목표까지 가기',
+      hints: ['"한 번 퍼뜨리기"를 누를 때마다 가치가 목표에서 한 칸씩 멀리 번진다.',
+        '값 조절: 출발에서 목표까지 가장 짧은 길은 15걸음이라서 14번 퍼뜨리면 출발 칸 옆까지 가치가 닿고 길이 이어진다. γ가 0.9라서 목표에서 한 칸 멀어질 때마다 가치가 0.9배로 줄어든다.',
+        '"한 번 퍼뜨리기"를 14번 누르고 채점한다.'],
+      solution: { sweeps: 14 },
+      stars: [{ type: 'sweeps', max: 20 }, { type: 'sweeps', max: 14 }],
+    },
+    {
+      id: 'Q2', title: '멀리 볼까 가까이 볼까', concept: 'discount', mode: 'vi', gammas: [0.5, 0.6, 0.7, 0.8, 0.9], gamma0: 0.5,
+      grid: ['..........', 'g.S......G', '..........'], rewards: { G: 10, g: 1 },
+      brief: '출발 가까이에 작은 보상(+1), 멀리에 큰 보상(+10)이 있다. 할인율 γ는 "나중에 받는 보상을 지금 얼마로 칠까"다. γ가 작으면 눈앞의 작은 보상을, 크면 멀리 있는 큰 보상을 고른다. 화살표가 큰 보상(+10)으로 가게 하자. γ를 바꾸면 가치는 처음부터 다시 퍼뜨린다.',
+      goalText: '화살표가 큰 보상(+10)으로 가게 하기',
+      hints: ['작은 보상은 2걸음, 큰 보상은 7걸음 떨어져 있다. 큰 보상의 가치는 걸음마다 γ배씩 줄어든다.',
+        '값 조절: 출발에서 보면 작은 보상은 1 × γ, 큰 보상은 10 × γ⁶이다. 10 × γ⁶이 더 크려면 γ⁵ > 0.1, 즉 γ가 약 0.63보다 커야 한다. 그래서 0.5, 0.6은 작은 보상으로, 0.7부터는 큰 보상으로 간다. 가치가 출발까지 닿으려면 6번은 퍼뜨려야 한다.',
+        'γ 0.7로 바꾸고 "한 번 퍼뜨리기"를 6번 이상 누른 뒤 채점.'],
+      solution: { gamma: 0.7, sweeps: 8 },
+      stars: [{ type: 'gammaMax', max: 0.7 }, { type: 'sweeps', max: 10 }],
+    },
+    {
+      id: 'Q3', title: '해 보며 배우기', concept: 'qlearning', mode: 'q', alphas: [0.1, 0.5, 1], epss: [0, 0.1, 0.3], alpha0: 0.1, eps0: 0.1, seed: 'Q3',
+      grid: ['S..#...', '.#.#.#.', '.#...#.', '...#..G'], rewards: { G: 10 }, stepReward: -1, maxEpisodes: 200, shortest: true, maxT: 80,
+      brief: '이번에는 지도를 모른다. 가치를 미리 계산할 수 없으니 직접 돌아다니며 배운다(Q러닝). 칸마다 네 방향의 점수표(Q)를 두고, 한 걸음 갈 때마다 "받은 보상 + γ × 도착한 칸의 가장 좋은 Q" 쪽으로 Q를 조금 고친다. 걸음마다 -1점이라서 오래 헤맬수록 손해다. 가장 짧은 길을 배우게 하자.',
+      goalText: '가장 짧은 길(9걸음)로 목표까지 가게 배우기',
+      hints: ['"한 판 해 보기"를 눌러 몇 판 돌려 보자. 판이 쌓일수록 칸의 숫자와 화살표가 목표 쪽으로 정리된다.',
+        '값 조절: 학습률 α는 한 번에 Q를 얼마나 고칠지다. 이 세상은 같은 행동이 언제나 같은 결과를 내서 α를 크게 해도 괜찮다. α 0.1이면 40판 안팎(38~47판), 0.5면 15판 안팎, 1이면 10판 안팎이 걸린다. 걸음마다 -1점이라 안 가 본 칸(0점)이 더 좋아 보여서 저절로 새 길을 시도한다.',
+        'α 1, ε 0.1로 "자동 학습".'],
+      solution: { alpha: 1, eps: 0.1 },
+      stars: [{ type: 'episodes', max: 50 }, { type: 'episodes', max: 15 }],
+    },
+    {
+      id: 'Q4', title: '작은 보상의 함정', concept: 'explore', mode: 'q', boss: true, alphas: [0.5, 1], epss: [0, 0.1, 0.3, 0.5], alpha0: 0.5, eps0: 0, seed: 'decoy-11',
+      grid: ['........', 'g.S....G', '........'], rewards: { G: 10, g: 1 }, maxEpisodes: 300,
+      brief: '출발 왼쪽 두 칸에 작은 보상(+1), 오른쪽 다섯 칸에 큰 보상(+10)이 있다. 가장 좋다고 아는 쪽으로만 가면(활용), 처음 찾은 작은 보상에 만족하고 큰 보상은 영영 모른다. ε는 일부러 아무 방향으로나 가 보는 비율(탐험)이다. 큰 보상을 찾아 배우게 하자.',
+      goalText: '화살표가 큰 보상(+10)으로 가게 배우기',
+      hints: ['ε 0으로 자동 학습을 돌려 보자. 몇 판 만에 작은 보상으로 가는 길만 굳어 버린다.',
+        '값 조절: 이 실험에서 ε 0이나 0.1이면 300판을 해도 작은 보상에 머문다. α 0.5에서 ε 0.3이면 31판, ε 0.5면 8판 만에 큰 보상을 찾는다. α 1에서는 ε 0.3이면 13판, 0.5면 8판.',
+        'α 0.5, ε 0.5로 "자동 학습".'],
+      solution: { alpha: 0.5, eps: 0.5 },
+      stars: [{ type: 'episodes', max: 60 }, { type: 'episodes', max: 15 }],
+    },
+  ].map((st) => Object.assign({}, GRID_BASE, st));
+
+  // ===================================================================
+  // 심화 13장 확률로 답하는 뇌 (6장 심화): 소프트맥스, 확신, 여러 갈래 분류, 교차 엔트로피
+  // 한 점 = [x, y, 정답 번호]. 출력 뉴런마다 그 번호일 확률, 가장 큰 쪽이 답
+  // ===================================================================
+  function pointsK(seed, n, k, label) {
+    const r = SA.sim.makeRng(seed), out = [], cnt = new Array(k).fill(0);
+    for (let guard = 0; out.length < n && guard < 40000; guard++) {
+      const x = Math.round((0.05 + 0.9 * r()) * 100) / 100, y = Math.round((0.05 + 0.9 * r()) * 100) / 100;
+      const l = label(x, y);
+      if (l === null || cnt[l] >= Math.ceil(n / k)) continue;
+      cnt[l]++;
+      out.push([x, y, l]);
+    }
+    return out;
+  }
+  const softFn = (outs) => Object.fromEntries(outs.map((o) => [o, 'softmax']));
+  const CLS3 = ['out', 'out2', 'out3'], CLS4 = ['out', 'out2', 'out3', 'out4'];
+  const PROB_BASE = { type: 'logic', plot: true, inputs: ['inX', 'inY'], sensors: ['inX', 'inY', 'bias'], maxHidden: 0, fixedHidden: 0, funcs: ['softmax'] };
+  const PROB = [
+    {
+      id: 'SM1', title: '셋으로 나누기', concept: 'softmax', tour: 'classes', classes: 3, outputs: CLS3, fixedFn: softFn(CLS3),
+      brief: '이번에는 색이 셋이다. 출력 뉴런도 셋이고, 세 출력은 소프트맥스로 묶여 있다. 소프트맥스는 세 출력의 합이 언제나 1이 되도록 나눠 가지게 해서, 각 출력을 "그 색일 확률"로 읽을 수 있게 한다. 가장 큰 확률의 색이 답이다. 왼쪽 주황, 가운데 파랑, 오른쪽 초록을 나눠 보자.',
+      goalText: '모든 점의 색을 맞히기',
+      rows: pointsK('SM1', 18, 3, (x) => (x < 0.25 ? 0 : x >= 0.42 && x <= 0.58 ? 1 : x > 0.75 ? 2 : null)),
+      hints: ['출력 1(주황)은 x가 작을수록, 출력 3(초록)은 x가 클수록 커지게 하자. 출력 2(파랑)는 아무 선도 없이 0으로 두면, 다른 둘이 작은 가운데에서 이긴다.',
+        '값 조절: 출력 1 = x × -3 + 상시 1이면 x = 1/3에서 0이 된다. 출력 3 = x × 3 + 상시 -2면 x = 2/3에서 0이 된다. 그 사이에서는 둘 다 0보다 작아서 출력 2가 가장 크다.',
+        'x → 출력 1 -3, 상시 → 출력 1 +1, x → 출력 3 +3, 상시 → 출력 3 -2.'],
+      solution: withFn(B('inX>out:-3', 'bias>out:1', 'inX>out3:3', 'bias>out3:-2'), softFn(CLS3)),
+      stars: [{ type: 'synapses', max: 4 }, { type: 'noHidden' }],
+    },
+    {
+      id: 'SM2', title: '확신 높이기', concept: 'confidence', classes: 2, outputs: ['out', 'out2'], fixedFn: softFn(['out', 'out2']), need: { confidence: 0.8 },
+      brief: '색은 둘이다. 이번에는 맞히는 것만으로는 부족하다. 정답 색의 확률이 평균 80% 이상이어야 한다. 경계선이 같아도 가중치를 크게 하면 두 출력의 차이가 커져서 확률이 한쪽으로 쏠린다(확신이 커진다).',
+      goalText: '모두 맞히고 정답 확률 평균 80% 이상',
+      rows: pointsK('SM2', 16, 2, (x) => (x < 0.3 ? 0 : x > 0.7 ? 1 : null)),
+      hints: ['출력 1은 x가 작을수록, 출력 2는 x가 클수록 커지게 하자. 경계는 x = 0.5.',
+        '값 조절: 출력 1 = x × -1 + 0.5, 출력 2 = x × 1 - 0.5면 모두 맞히지만 확률 평균은 약 66%다. 가중치 ±2, 상시 ±1이면 약 79%, 가중치 ±3, 상시 ±1.5로 키우면 같은 경계에서 약 88%가 된다(가중치는 3까지).',
+        'x → 출력 1 -3, 상시 → 출력 1 +1.5, x → 출력 2 +3, 상시 → 출력 2 -1.5.'],
+      solution: withFn(B('inX>out:-3', 'bias>out:1.5', 'inX>out2:3', 'bias>out2:-1.5'), softFn(['out', 'out2'])),
+      stars: [{ type: 'confidence', min: 0.85 }, { type: 'synapses', max: 4 }],
+    },
+    {
+      id: 'SM3', title: '네 귀퉁이', concept: 'multiclass', boss: true, classes: 4, outputs: CLS4, fixedFn: softFn(CLS4),
+      brief: '색이 넷이고 점이 네 귀퉁이에 모여 있다(왼쪽 아래 주황, 오른쪽 아래 파랑, 왼쪽 위 초록, 오른쪽 위 보라). 출력 뉴런 넷이 각자 "내 귀퉁이 쪽일수록 커지게" 만들면, 가장 큰 출력이 귀퉁이를 가른다. 히든 뉴런 없이도 된다.',
+      goalText: '모든 점의 색을 맞히기',
+      rows: pointsK('SM3', 20, 4, (x, y) => (Math.abs(x - 0.5) < 0.12 || Math.abs(y - 0.5) < 0.12 ? null : (x > 0.5 ? 1 : 0) + (y > 0.5 ? 2 : 0))),
+      hints: ['오른쪽 귀퉁이 출력은 x를 +로, 왼쪽은 x를 -로 받는다. 위쪽 귀퉁이 출력은 y를 +로, 아래쪽은 y를 -로 받는다.',
+        '값 조절: 크기를 모두 3으로 맞추면, 가운데(0.5, 0.5)에서 네 출력이 같아지도록 상시를 맞춰야 한다. 왼쪽 아래는 x -3, y -3, 상시 +3. 오른쪽 위는 x +3, y +3, 상시 -3. 나머지 둘은 상시가 0이다.',
+        '출력 1(주황): x -3, y -3, 상시 +3 / 출력 2(파랑): x +3, y -3 / 출력 3(초록): x -3, y +3 / 출력 4(보라): x +3, y +3, 상시 -3.'],
+      solution: withFn(B('inX>out:-3', 'inY>out:-3', 'bias>out:3', 'inX>out2:3', 'inY>out2:-3', 'inX>out3:-3', 'inY>out3:3', 'inX>out4:3', 'inY>out4:3', 'bias>out4:-3'), softFn(CLS4)),
+      stars: [{ type: 'synapses', max: 10 }, { type: 'noHidden' }],
+    },
+  ].map((st) => Object.assign({}, PROB_BASE, st));
+  const PROB_TRAIN = {
+    id: 'SM4', title: '교차 엔트로피로 배우기', concept: 'crossentropy', type: 'train', plot: true, loss: 'ce', classes: 3,
+    inputs: ['inX', 'inY'], sensors: ['inX', 'inY', 'bias'], outputs: CLS3, fixedFn: softFn(CLS3), maxHidden: 0, maxEpochs: 200, funcs: ['softmax'],
+    brief: '이번에는 세 색을 스스로 나누게 배운다. 오차는 "정답 색의 확률이 얼마나 낮았나"로 잰다. 정답 확률이 1이면 오차 0, 0에 가까울수록 오차가 끝없이 커진다(교차 엔트로피 = -log 정답 확률). 소프트맥스와 함께 쓰면 고치는 양이 "확률 - 정답"으로 아주 간단해진다. 모든 가중치가 0인 뇌에서 시작한다.',
+    goalText: '세 색을 모두 맞히도록 스스로 배우게 하기',
+    rows: pointsK('SM4', 18, 3, (x, y) => {
+      const c = [[0.25, 0.25], [0.75, 0.3], [0.5, 0.8]].map(([a, b]) => Math.hypot(x - a, y - b));
+      const k = c.indexOf(Math.min(...c));
+      return c[k] < 0.17 ? k : null;
+    }),
+    init: { hidden: [], synapses: ['inX', 'inY', 'bias'].flatMap((f) => CLS3.map((o) => ({ from: f, to: o, w: 0 }))), fn: softFn(CLS3) },
+    hints: ['학습률을 고르고 자동 학습을 누르자. 배경의 세 색 영역이 점들 쪽으로 자리를 잡는다.',
+      '값 조절: 학습률 0.02면 22번, 0.05면 8번, 0.1이면 3번, 0.3이면 4번, 0.5면 5번 만에 배운다. 1 이상은 가중치가 한 번에 너무 크게 바뀌어서 끝내 다 맞히지 못한다.',
+      '학습률 0.1로 자동 학습.'],
+    solution: { lr: 0.1 },
+    stars: [{ type: 'epochs', max: 20 }, { type: 'epochs', max: 5 }],
+  };
+
+  // ===================================================================
+  // 심화 14장 문을 단 기억 (8장 심화): 게이트와 LSTM
+  // 입력이 여러 갈래(값, 신호)로 들어오고, 출력은 값 그대로를 맞혀야 한다(허용 오차 0.05)
+  // ===================================================================
+  const gateSeqs = (xs, f) => xs.map((x) => ({ x, t: f(x) }));
+  const held = (useRead) => (x) => { let c = 0; return x.map(([a, b, r]) => { if (b) c = a; return useRead ? (r ? c : 0) : c; }); };
+  const GATE_BASE = { type: 'seq', outputs: ['out'], funcs: ['clamp', 'mul'], tol: 0.05, seqInputs: ['inA', 'inB'], maxHidden: 0, fixedHidden: 0 };
+  const GATES = [
+    {
+      id: 'GT1', title: '문 열고 닫기', concept: 'gate', tour: 'gate', inputNames: ['값 A', '문 B'],
+      sensors: ['inA', 'inB', 'bias'],
+      brief: '이번에는 입력이 두 갈래다. A는 0~1 사이의 값, B는 문(0 = 닫힘, 1 = 열림)이다. 문이 열렸을 때만 A를 그대로 내보내고, 닫혔을 때는 0을 내보내자. 이번 장에서는 "곱(×)" 함수를 쓸 수 있다. 곱 뉴런은 들어온 신호를 모두 곱해서, 문(0 또는 1)과 곱하면 값을 통과시키거나 막는다. 출력은 값 그대로 맞혀야 한다(0.05까지 봐준다).',
+      goalText: '문이 열렸을 때만 값 A를 내보내기',
+      seqs: gateSeqs([[[0.8, 1], [0.3, 0], [0.5, 1], [1, 1], [0.2, 0], [0.6, 0], [0.4, 1]], [[0.4, 0], [0.9, 1], [0.7, 0], [0.1, 1], [0.6, 1], [0.3, 0], [1, 0]]], (x) => x.map(([a, b]) => (b ? a : 0))),
+      hints: ['출력 뉴런을 눌러 활성화 함수를 "곱(×)"으로 바꾸고, 값 A와 문 B를 둘 다 출력에 이어 보자.',
+        '값 조절: 곱 뉴런의 출력 = (A × 1) × (B × 1). B가 1이면 A, 0이면 0이다. 기본 함수로도 A + B - 1(상시 -1)로 만들 수 있지만 선이 하나 더 든다.',
+        '출력 함수를 곱(×)으로, 값 A → 출력 +1, 문 B → 출력 +1.'],
+      solution: withFn(B('inA>out:1', 'inB>out:1'), { out: 'mul' }),
+      stars: [{ type: 'synapses', max: 2 }, { type: 'unitWeights' }],
+    },
+    {
+      id: 'GT2', title: '필요할 때만 담기', concept: 'inputgate', inputNames: ['값 A', '저장 B'],
+      sensors: ['inA', 'inB', 'mem1', 'bias'], maxHidden: 4, fixedHidden: 4,
+      brief: '저장 신호 B가 1일 때 들어온 값 A를 기억해 두고, 다음 저장 신호가 올 때까지 계속 그 값을 내보내자(처음에는 0). 히든 1을 "기억 칸(셀)"으로 쓰자. 셀의 새 값 = (저장 B이면 새 값 A) + (저장 B가 아니면 지난 셀 값). LSTM의 입력 게이트가 하는 일이다.',
+      goalText: '마지막으로 저장한 값을 계속 내보내기',
+      seqs: gateSeqs([[[0.7, 1], [0.2, 0], [0.9, 0], [0.4, 1], [0.6, 0], [1, 0], [0.3, 0]], [[0.5, 0], [0.8, 1], [0.1, 0], [0.6, 0], [0.2, 1], [0.9, 0], [0.4, 0]], [[1, 1], [0.3, 0], [0.5, 1], [0.7, 0], [0.6, 1], [0.2, 0], [0.8, 0]]], held(false)),
+      hints: ['히든 2 = A × B(저장할 때만 새 값), 히든 3 = 기억 1 × (1 - B)(저장 안 할 때만 지난 값), 히든 1 = 히든 2 + 히든 3. 1 - B는 히든 4로 만든다(상시 +1, B -1).',
+        '값 조절: 히든 2와 히든 3의 함수는 곱(×)이다. 기억 1에는 히든 1(셀)이 바로 전 칸에 낸 값이 돌아온다. 곱 대신 기본 함수로 히든 2 = A + B - 1, 히든 3 = 기억 1 - B로 만들어도 된다.',
+        '히든 2(곱): A +1, B +1 / 히든 4: 상시 +1, B -1 / 히든 3(곱): 기억 1 +1, 히든 4 +1 / 히든 1: 히든 2 +1, 히든 3 +1 / 히든 1 → 출력 +1.'],
+      solution: withFn(B('inA>h2:1', 'inB>h2:1', 'bias>h4:1', 'inB>h4:-1', 'mem1>h3:1', 'h4>h3:1', 'h2>h1:1', 'h3>h1:1', 'h1>out:1'), { h2: 'mul', h3: 'mul' }),
+      stars: [{ type: 'synapses', max: 9 }, { type: 'unitWeights' }],
+    },
+    {
+      id: 'GT3', title: '지우개 문', concept: 'forgetgate', inputNames: ['값 A', '지우기 B'],
+      sensors: ['inA', 'inB', 'mem1', 'bias'], maxHidden: 3, fixedHidden: 3,
+      brief: '들어오는 값 A를 계속 더해서 쌓아 두다가, 지우기 신호 B가 오면 쌓인 것을 버리고 그 칸의 A부터 다시 쌓자. 셀의 새 값 = (지우기 B가 아니면 지난 셀 값) + A. 지난 기억에 곱하는 "남길까 지울까" 문이 LSTM의 망각 게이트다. 1997년 처음 나온 LSTM에는 없었고 2000년에 더해졌다.',
+      goalText: '지우기 신호 뒤로 값을 다시 쌓기',
+      seqs: gateSeqs([[[0.1, 0], [0.2, 0], [0.3, 0], [0.1, 1], [0.2, 0], [0.3, 0], [0.2, 1]], [[0.3, 0], [0.3, 0], [0.1, 1], [0.1, 0], [0.4, 0], [0.2, 1], [0.1, 0]], [[0.2, 1], [0.2, 0], [0.2, 0], [0.3, 0], [0.1, 1], [0.3, 0], [0.3, 0]]],
+        (x) => { let c = 0; return x.map(([a, b]) => (c = (b ? 0 : c) + a)); }),
+      hints: ['히든 1이 셀이다. 히든 1 = (지난 셀 × 남길까 문) + A. 남길까 문 = 1 - B.',
+        '값 조절: 히든 3 = 1 - B(상시 +1, B -1), 히든 2 = 기억 1 × 히든 3(곱). 셀 값이 1을 넘지 않아서 기본 함수로 히든 2 = 기억 1 - B(B가 1이면 0 아래로 잘림)로 만들 수도 있다.',
+        '히든 3: 상시 +1, B -1 / 히든 2(곱): 기억 1 +1, 히든 3 +1 / 히든 1: 히든 2 +1, A +1 / 히든 1 → 출력 +1.'],
+      solution: withFn(B('bias>h3:1', 'inB>h3:-1', 'mem1>h2:1', 'h3>h2:1', 'h2>h1:1', 'inA>h1:1', 'h1>out:1'), { h2: 'mul' }),
+      stars: [{ type: 'synapses', max: 7 }, { type: 'unitWeights' }],
+    },
+    {
+      id: 'GT4', title: 'LSTM 한 칸', concept: 'lstm', boss: true, inputNames: ['값 A', '저장 B', '읽기 C'], seqInputs: ['inA', 'inB', 'inC'],
+      sensors: ['inA', 'inB', 'inC', 'mem1', 'bias'], maxHidden: 4, fixedHidden: 4,
+      brief: '마지막은 문 셋을 다 쓴다. 저장 B가 오면 값 A를 셀에 담고(입력 게이트), 아니면 지난 셀을 남기고(망각 게이트), 읽기 C가 1일 때만 셀 값을 내보낸다(출력 게이트). 읽지 않을 때는 0이다. 이것이 LSTM 한 칸이 하는 일이다.',
+      goalText: '읽기 신호가 올 때만 저장한 값을 내보내기',
+      seqs: gateSeqs([[[0.6, 1, 0], [0.2, 0, 0], [0.9, 0, 1], [0.4, 0, 0], [0.3, 1, 0], [0.8, 0, 1], [0.5, 0, 1]], [[0.4, 0, 1], [0.7, 1, 0], [0.1, 0, 0], [0.5, 0, 1], [0.9, 1, 1], [0.2, 0, 0], [0.6, 0, 1]]], held(true)),
+      hints: ['두 번째 실험(필요할 때만 담기)의 셀을 그대로 만들고, 출력에만 읽기 문을 단다.',
+        '값 조절: 출력 = 히든 1 × 읽기 C. 출력 뉴런의 함수를 곱(×)으로 바꾸고 히든 1과 읽기 C를 잇는다.',
+        '히든 2(곱): A, B / 히든 4: 상시 +1, B -1 / 히든 3(곱): 기억 1, 히든 4 / 히든 1: 히든 2, 히든 3 / 출력(곱): 히든 1, 읽기 C. 모두 +1(히든 4의 B만 -1).'],
+      solution: withFn(B('inA>h2:1', 'inB>h2:1', 'bias>h4:1', 'inB>h4:-1', 'mem1>h3:1', 'h4>h3:1', 'h2>h1:1', 'h3>h1:1', 'h1>out:1', 'inC>out:1'), { h2: 'mul', h3: 'mul', out: 'mul' }),
+      stars: [{ type: 'synapses', max: 10 }, { type: 'unitWeights' }],
+    },
+  ].map((st) => Object.assign({}, GATE_BASE, st));
+  const GATE_POS = { 3: { h1: [0.85, 0.5], h2: [0.5, 0.3], h3: [0.15, 0.18] }, 4: { h1: [0.85, 0.5], h2: [0.3, 0.72], h3: [0.55, 0.28], h4: [0.15, 0.12] } };
+  GATES.forEach((st) => {
+    const pos = GATE_POS[st.fixedHidden];
+    if (!pos) return;
+    st.hiddenPos = pos;
+    for (const h of st.solution.hidden) if (pos[h.id]) { h.x = pos[h.id][0]; h.y = pos[h.id][1]; }
+  });
+
+  Object.assign(CONCEPTS, {
+    landscape: {
+      title: '오차 지형', line: '학습은 골짜기를 굴러 내려가는 공.',
+      brain: '뇌의 시냅스 세기도 경험할 때마다 조금씩 바뀐다. 어떤 바뀜이 더 나은 행동을 만드는지 뇌가 정확히 어떻게 아는지는 아직 다 밝혀지지 않았다.',
+      ai: '가중치마다 축을 하나씩 두고 오차를 높이로 놓으면 지형이 된다. 경사 하강은 지금 자리의 기울기를 재서 가장 가파르게 내려가는 쪽으로 학습률만큼 옮기기를 되풀이한다. 실제 신경망은 가중치가 수십억 개라서 수십억 차원의 지형이다.',
+    },
+    momentum: {
+      title: '모멘텀', line: '굴러가던 공은 쉽게 멈추지 않는다.',
+      brain: '운동을 배울 때도 매번 처음부터 고치기보다, 잘되던 방향으로 계속 다듬어 간다.',
+      ai: '모멘텀은 지난 걸음들의 방향을 평균 내어 "속도"로 기억하고, 그 속도로 나아간다. 지그재그로 튀는 방향은 서로 지워지고, 꾸준한 방향은 쌓여서 좁은 골짜기를 빨리 지난다. β가 클수록 오래 기억한다.',
+    },
+    escape: {
+      title: '웅덩이 벗어나기', line: '발밑만 보면 웅덩이가 바닥처럼 보인다.',
+      brain: '익숙한 방법이 "그럭저럭 괜찮으면" 더 좋은 방법을 찾지 않게 된다. 가끔 다른 시도를 해 봐야 더 나은 곳을 찾는다.',
+      ai: '경사 하강은 근처의 오목한 곳(지역 최소)에 멈출 수 있다. 관성(모멘텀), 시작값 바꾸기, 학습에 섞인 잡음(미니배치)이 작은 웅덩이를 벗어나게 돕는다. 다만 수많은 차원의 실제 신경망에서는 웅덩이보다 평평한 안장점이 더 큰 문제라고 알려져 있다.',
+    },
+    adam: {
+      title: 'Adam', line: '가중치마다 걸음 크기를 따로.',
+      brain: '뇌의 시냅스도 저마다 바뀌는 속도가 다르다. 자주 쓰이는 연결과 드물게 쓰이는 연결은 다르게 조절된다.',
+      ai: 'Adam은 가중치마다 기울기의 평균(모멘텀)과 기울기 크기의 평균을 따로 기억해서, 기울기를 그 크기로 나눠 걸음을 정한다. 그래서 가파른 쪽도 평평한 쪽도 비슷한 크기로 나아간다. 2014년에 나와 지금 가장 널리 쓰인다.',
+    },
+    valuefn: {
+      title: '가치 함수', line: '여기 있으면 앞으로 얼마나 좋을까.',
+      brain: '원숭이 실험에서 "곧 보상이 온다"는 신호(불빛·소리)를 익히고 나면, 도파민 뉴런은 보상 그 자체보다 그 신호에 먼저 반응한다. 뇌도 "앞으로 좋은 일이 있겠다"는 예측, 곧 가치를 계산한다.',
+      ai: '가치는 어떤 상태에서 시작해 앞으로 받을 보상의 합이다. 벨만 방정식은 "지금 가치 = 한 걸음 보상 + γ × 다음 상태의 가치"로 가치를 칸에서 칸으로 이어 준다. 가치를 알면 가장 가치가 높은 쪽으로만 가면 된다.',
+    },
+    discount: {
+      title: '할인율 γ', line: '내일의 10점은 오늘 몇 점일까.',
+      brain: '사람과 동물은 나중에 받을 보상을 더 작게 느낀다(시간 할인). 지금 과자 하나와 일주일 뒤 과자 두 개 사이에서 고민하는 것이 그 예다.',
+      ai: '할인율 γ(0~1)는 한 걸음 늦게 받는 보상에 곱하는 값이다. γ가 작으면 눈앞의 보상만, 1에 가까우면 먼 미래까지 본다. γ를 1보다 작게 두면 끝없이 이어지는 보상의 합도 유한해진다.',
+    },
+    qlearning: {
+      title: 'Q러닝', line: '지도 없이, 해 보며 배우는 가치.',
+      brain: '처음 가는 동네에서도 이리저리 다녀 보며 어느 길이 빠른지 익힌다. 결과가 예상보다 좋으면 그 선택을 더 믿게 된다.',
+      ai: 'Q러닝은 상태마다 행동별 점수 Q를 두고, 한 걸음 갈 때마다 "받은 보상 + γ × 다음 상태의 가장 좋은 Q"와의 차이만큼 Q를 고친다. 세상의 규칙을 몰라도 배운다. 2015년 DQN은 이 Q를 신경망으로 바꿔 아타리 게임을 배웠다.',
+    },
+    softmax: {
+      title: '소프트맥스', line: '출력을 확률로 나눠 가지기.',
+      brain: '여러 뉴런 무리가 서로 억누르며 경쟁하면, 가장 강한 쪽만 크게 남는다. 뇌가 여러 해석 중 하나를 고를 때 이런 경쟁이 일어난다고 본다.',
+      ai: '소프트맥스는 각 출력의 지수(e^값)를 전체 합으로 나눠, 모든 출력이 0~1이고 합이 1이 되게 한다. 그래서 출력을 "각 종류일 확률"로 읽는다. 사진 분류, 다음 단어 고르기 같은 여러 갈래 분류의 마지막 층에 거의 언제나 쓰인다.',
+    },
+    confidence: {
+      title: '확신과 보정', line: '맞히는 것과 얼마나 확신하는가는 다르다.',
+      brain: '사람도 맞혔지만 자신 없을 때가 있고, 틀렸는데 확신할 때도 있다. 자기 판단을 얼마나 믿을지 아는 것(메타인지)도 따로 발달한다.',
+      ai: '같은 경계라도 가중치를 키우면 확률이 0이나 1 쪽으로 쏠린다. 확신은 높을수록 좋은 게 아니라, 실제로 맞을 확률과 같아야 좋다(보정). 요즘 큰 신경망은 틀릴 때도 지나치게 확신하는 경향이 있다고 알려져 있다.',
+    },
+    multiclass: {
+      title: '여러 갈래 분류', line: '가장 큰 출력이 이긴다.',
+      brain: '시각 피질의 깊은 곳에는 얼굴, 장소, 몸 같은 범주에 따로 반응하는 영역들이 있다.',
+      ai: '종류마다 출력 뉴런을 하나씩 두고, 가장 큰 출력의 종류를 답으로 한다. 출력이 히든 없이 입력에 바로 이어지면 각 종류의 영역은 직선으로 둘러싸인 볼록한 모양이 된다. 손글씨 숫자 10가지, 사진 1000가지도 같은 방식이다.',
+    },
+    crossentropy: {
+      title: '교차 엔트로피', line: '정답을 얼마나 놀라워했나.',
+      brain: '뇌는 예상이 크게 빗나갈 때(놀랄 때) 더 많이 배운다는 연구가 많다. 예측 오차가 학습 신호가 된다.',
+      ai: '교차 엔트로피는 -log(정답의 확률)이다. 정답 확률이 1이면 0, 작을수록 크게 벌한다. 소프트맥스와 함께 쓰면 고칠 양이 "확률 - 정답"으로 간단해서, 분류 신경망은 거의 모두 이 오차로 배운다. 섀넌의 정보 이론에서 나온 말이다.',
+    },
+    gate: {
+      title: '게이트', line: '곱하기 하나로 열고 닫는 문.',
+      brain: '뇌에는 다른 뉴런의 신호가 통할지 말지를 조절하는 회로가 있다. 시상(thalamus)은 감각 정보를 대뇌로 보낼지 거르는 관문 역할을 한다.',
+      ai: '게이트는 0~1 사이의 값을 곱해서 신호를 통과시키거나(1) 막는다(0). LSTM과 GRU 같은 순환 신경망은 이 문들로 무엇을 기억하고 무엇을 내보낼지 스스로 배운다.',
+    },
+    inputgate: {
+      title: '입력 게이트', line: '아무거나 담지 않는다.',
+      brain: '하루에 보고 듣는 것 중 아주 일부만 기억에 남는다. 주의를 기울인 것, 중요하다고 느낀 것만 저장된다.',
+      ai: '입력 게이트는 새 값을 셀에 얼마나 담을지 정한다. 문이 닫혀 있으면 새 입력이 들어와도 셀은 그대로라서, 필요한 순간의 값만 골라 오래 들고 있을 수 있다.',
+    },
+    forgetgate: {
+      title: '망각 게이트', line: '잘 잊어야 잘 기억한다.',
+      brain: '잊는 것도 뇌의 중요한 기능이다. 쓸모없어진 기억을 지워야 새로운 것을 헷갈리지 않고 배운다.',
+      ai: '망각 게이트는 지난 셀 값에 곱해서 얼마나 남길지 정한다. 1997년의 첫 LSTM에는 없었는데, 셀 값이 끝없이 쌓이는 문제를 풀려고 2000년에 더해졌다(Gers 외). 지금 LSTM이라고 하면 보통 이것이 있는 형태다.',
+    },
+    lstm: {
+      title: 'LSTM', line: '문 셋이 달린 기억 칸.',
+      brain: '작업 기억은 필요한 것을 붙잡아 두고, 방해 자극은 막고, 필요할 때 꺼내 쓴다. 전전두엽과 바닥핵이 이런 "문 여닫기"에 관여한다는 이론이 있다.',
+      ai: 'LSTM 한 칸은 셀(기억)과 입력·망각·출력 게이트로 이루어진다. 게이트 값은 보통 시그모이드로 0~1 사이를 내고, 무엇을 담고 지우고 꺼낼지를 학습으로 정한다. 트랜스포머가 나오기 전까지 번역·음성 인식의 중심이었다.',
+    },
+  });
+
   // 0장 튜토리얼: 진리표 실험 형식으로 모든 조작을 하나씩 따라 해 본다(투어는 app.js)
   const TUTORIAL = Object.assign({}, LOGIC_BASE, {
     id: 'tut', no: '0-1', chapter: 0, title: '튜토리얼', concept: 'neuron', tour: 'basic', funcs: FUNCS_BASIC,
@@ -1116,6 +1434,10 @@
     { list: MEMORY, no: 8, tag: 'AI 개념' },
     { list: CLUSTER, no: 9, tag: 'AI 개념' },
     { list: COMPRESS.concat([COMPRESS_TRAIN]), no: 10, tag: 'AI 개념' },
+    { list: DESCENT, no: 11, tag: '심화' },
+    { list: VALUE, no: 12, tag: '심화' },
+    { list: PROB.concat([PROB_TRAIN]), no: 13, tag: '심화' },
+    { list: GATES, no: 14, tag: '심화' },
   ];
   const STAGES = [];
   for (const g of ORDER) g.list.forEach((st, k) => {
@@ -1123,7 +1445,7 @@
     st.code = st.no;
     STAGES.push(st);
   });
-  const TAGS = ['AI 개념', '사고력'];
+  const TAGS = ['AI 개념', '사고력', '심화'];
   const TRACKS = [
     {
       id: 'ai', title: 'AI 배우기', route: 'home',
@@ -1140,6 +1462,10 @@
         { no: 8, title: '기억하는 뇌', tag: 'AI 개념', desc: 'RNN의 기초. 뉴런의 값을 다음 순간의 자신에게 되돌려 보내면 뇌가 기억을 갖는다. 방금 전 기억하기, 켜짐 붙잡기, 두 번 연속, 두 칸 전 기억, 홀짝 세기.' },
         { no: 9, title: '스스로 묶는 뇌', tag: 'AI 개념', desc: '비지도 학습. 정답 없이 비슷한 점끼리 묶는다. 중심을 직접 옮겨 보고, k-평균이 "묶기 → 옮기기"를 되풀이해 무리를 찾는 것을 본다. 나쁜 시작과 무리 수 고르기까지.' },
         { no: 10, title: '압축하는 뇌', tag: 'AI 개념', desc: '오토인코더. 정보를 작은 코드로 줄였다가 다시 살린다. 넷을 둘로 줄이는 코드 만들기, 잡음 지우기, 스스로 압축을 배우며 생기는 코드 지도(잠재 공간).' },
+        { no: 11, title: '골짜기를 내려가는 뇌', tag: '심화', base: 4, desc: '4장 심화 · 최적화. 가중치 두 개로 그린 오차 지형 위에서 공을 굴린다. 학습률, 좁은 골짜기와 모멘텀, 작은 웅덩이(지역 최소), 걸음을 따로 맞추는 Adam.' },
+        { no: 12, title: '가치를 배우는 뇌', tag: '심화', base: 5, desc: '5장 심화 · 가치 기반 강화학습. 칸마다 "앞으로 받을 점수"를 적는 가치 함수와 벨만 방정식, 할인율 γ, 지도 없이 배우는 Q러닝, 작은 보상의 함정과 탐험.' },
+        { no: 13, title: '확률로 답하는 뇌', tag: '심화', base: 6, desc: '6장 심화 · 여러 갈래 분류. 소프트맥스로 출력을 확률로 읽고, 가중치로 확신을 키우고, 네 갈래를 나누고, 교차 엔트로피로 스스로 배운다.' },
+        { no: 14, title: '문을 단 기억', tag: '심화', base: 8, desc: '8장 심화 · LSTM. 곱(×) 뉴런으로 문(게이트)을 만들어, 필요할 때만 담고(입력), 지울 때 지우고(망각), 필요할 때만 꺼내는(출력) 기억 칸을 조립한다.' },
       ],
     },
   ];
@@ -1266,6 +1592,18 @@
     { term: '오토인코더', en: 'autoencoder', def: '입력을 작은 코드로 줄였다가(인코더) 다시 살리는(디코더) 신경망. 입력 자기 자신을 목표로 배운다.' },
     { term: '잠재 공간', en: 'latent space', def: '오토인코더의 코드 값들이 놓이는 공간. 잘 배우면 비슷한 입력이 가까운 자리에 놓인다.' },
     { term: '임베딩', en: 'embedding', def: '단어·사진 같은 것을 뜻이 담긴 숫자 묶음(코드)으로 바꾼 것. 비슷한 것은 비슷한 숫자가 된다.' },
+    { term: '오차 지형', en: 'loss landscape', def: '가중치들을 축으로, 오차를 높이로 그린 지형. 학습은 이 지형의 낮은 곳을 찾아 내려가는 일이다.' },
+    { term: '모멘텀', en: 'momentum', def: '지난 걸음들의 방향을 속도로 기억해서 그쪽으로 계속 나아가는 최적화 방법. 좁은 골짜기를 빨리 지나고 작은 웅덩이를 넘는다.' },
+    { term: 'Adam', en: 'adaptive moment estimation', def: '가중치마다 기울기의 평균과 크기를 기억해서 걸음 크기를 따로 맞추는 최적화 방법. 요즘 가장 많이 쓴다.' },
+    { term: '가치 함수', en: 'value function', def: '어떤 상태에서 시작해 앞으로 받을 보상의 합(할인된 합). 가치가 높은 쪽으로 가면 좋은 행동이 된다.' },
+    { term: '벨만 방정식', en: 'Bellman equation', def: '지금 가치 = 한 걸음 보상 + γ × 다음 상태의 가치. 가치를 상태에서 상태로 이어 주는 식.' },
+    { term: '할인율', en: 'discount factor γ', def: '한 걸음 늦게 받는 보상에 곱하는 0~1 사이의 수. 작으면 눈앞의 보상을, 크면 먼 보상까지 본다.' },
+    { term: 'Q러닝', en: 'Q-learning', def: '상태마다 행동별 점수 Q를 두고, 직접 해 보며 "보상 + γ × 다음 상태의 가장 좋은 Q" 쪽으로 고쳐 가는 강화학습 방법.' },
+    { term: 'ε-탐욕', en: 'ε-greedy', def: 'ε의 확률로는 아무 행동이나 해 보고(탐험), 나머지는 가장 좋다고 아는 행동을 하는(활용) 방법.' },
+    { term: '소프트맥스', en: 'softmax', def: '출력들을 0~1 사이, 합이 1인 확률로 바꾸는 함수. 여러 갈래 분류의 마지막 층에 쓴다.' },
+    { term: '교차 엔트로피', en: 'cross-entropy', def: '-log(정답의 확률). 정답을 낮은 확률로 말할수록 크게 벌하는 분류용 오차.' },
+    { term: '게이트', en: 'gate', def: '0~1 사이 값을 곱해 신호를 통과시키거나 막는 문. LSTM·GRU의 핵심 부품.' },
+    { term: '셀 상태', en: 'cell state', def: 'LSTM이 칸에서 칸으로 넘기는 기억 값. 게이트들이 무엇을 담고 지우고 꺼낼지 정한다.' },
     { term: '강화학습', en: 'reinforcement learning', def: '정답 표 없이, 행동한 결과로 받는 보상(점수)이 커지도록 스스로 행동 규칙을 바꾸는 학습. ‘보상으로 배우는 뇌’ 장에서 직접 해 본다.' },
     { term: '에이전트', en: 'agent', def: '강화학습에서 행동하고 배우는 쪽. 이 게임에서는 생명체 "도트"다. 에이전트가 행동하는 세상(아레나)을 환경이라고 한다.' },
     { term: '보상', en: 'reward', def: '행동의 결과로 받는 점수. 좋은 일에는 +, 피해야 할 일에는 -. 사람이 무엇에 몇 점을 줄지 정하는 것을 보상 설계라고 한다.' },
@@ -1275,5 +1613,152 @@
     { term: '역전파', en: 'backpropagation', def: '출력의 오차를 앞쪽 뉴런들에게 거꾸로 나눠 주며 모든 가중치를 고치는 방법. 거의 모든 신경망이 이렇게 배운다.' },
   ];
 
-  SA.content = { B, TAGS, SIGMAS, REWARD_STAGES: REWARDS, GLOSSARY, FUNCS_ALL, STAGES, TRACKS, CHAPTERS, PUZZLE_STAGES: PUZZLES, RATES, ARENA_STAGES: ARENA, LOGIC_STAGES: LOGIC, TRAIN_STAGES: TRAIN, VERSUS_ARENAS, VERSUS_SENSORS, RIVALS, LAB_ARENAS, CONCEPTS };
+  // ---- 관련 논문 ------------------------------------------------------------
+  // 개념마다 원전·대표 논문. link는 DOI(학술지 페이지), arXiv, 또는 저자가 공개한 원문.
+  // 모든 링크는 DOI·arXiv 메타데이터로 제목이 맞는지 확인했다.
+  const PAPERS = {
+    mp43: { title: 'A logical calculus of the ideas immanent in nervous activity', who: 'McCulloch & Pitts', year: 1943, link: 'https://doi.org/10.1007/BF02478259', note: '뉴런을 켜짐·꺼짐 두 가지만 내는 논리 소자로 본 최초의 인공 뉴런 모델.' },
+    ros58: { title: 'The perceptron: A probabilistic model for information storage and organization in the brain', who: 'Rosenblatt', year: 1958, link: 'https://doi.org/10.1037/h0042519', note: '가중치를 스스로 고치며 배우는 퍼셉트론을 처음 제안한 논문.' },
+    rhw86: { title: 'Learning representations by back-propagating errors', who: 'Rumelhart, Hinton & Williams', year: 1986, link: 'https://doi.org/10.1038/323533a0', note: '역전파로 히든 유닛이 스스로 쓸모 있는 표현을 배운다는 것을 보였다. XOR 같은 문제를 푼다.' },
+    shannon38: { title: 'A symbolic analysis of relay and switching circuits', who: 'Shannon', year: 1938, link: 'https://doi.org/10.1109/T-AIEE.1938.5057767', note: '논리식(AND·OR·NOT)을 스위치 회로로 바꾸는 법. 디지털 회로 설계의 출발점.' },
+    sheffer13: { title: 'A set of five independent postulates for Boolean algebras, with application to logical constants', who: 'Sheffer', year: 1913, link: 'https://doi.org/10.1090/S0002-9947-1913-1500960-1', note: '연산 하나(지금의 NAND)만으로 모든 논리를 나타낼 수 있음을 보였다.' },
+    hw59: { title: 'Receptive fields of single neurones in the cat\'s striate cortex', who: 'Hubel & Wiesel', year: 1959, link: 'https://doi.org/10.1113/jphysiol.1959.sp006308', note: '시각 피질 뉴런이 특정 방향의 선에만 반응한다는 발견. 합성곱 필터의 뿌리.' },
+    hw62: { title: 'Receptive fields, binocular interaction and functional architecture in the cat\'s visual cortex', who: 'Hubel & Wiesel', year: 1962, link: 'https://doi.org/10.1113/jphysiol.1962.sp006837', note: '단순 세포·복합 세포로 이어지는 시각 처리의 층 구조.' },
+    fuku80: { title: 'Neocognitron: A self-organizing neural network model for a mechanism of pattern recognition unaffected by shift in position', who: 'Fukushima', year: 1980, link: 'https://doi.org/10.1007/BF00344251', note: '필터 층과 모으는 층을 번갈아 쌓은 CNN의 원형.' },
+    lecun89: { title: 'Backpropagation applied to handwritten zip code recognition', who: 'LeCun et al.', year: 1989, link: 'https://doi.org/10.1162/neco.1989.1.4.541', note: '합성곱 필터를 역전파로 배우게 해서 손글씨 우편번호를 읽었다.' },
+    lecun98: { title: 'Gradient-based learning applied to document recognition', who: 'LeCun, Bottou, Bengio & Haffner', year: 1998, link: 'https://doi.org/10.1109/5.726791', note: '합성곱 → 풀링 → 분류로 이어지는 LeNet-5. CNN의 교과서 같은 논문.' },
+    alexnet: { title: 'ImageNet classification with deep convolutional neural networks', who: 'Krizhevsky, Sutskever & Hinton', year: 2012, link: 'https://doi.org/10.1145/3065386', note: '깊은 CNN으로 사진 1000가지 분류에서 크게 이기며 딥러닝 붐을 연 AlexNet. 링크는 2017년 학술지에 다시 실린 판.' },
+    lettvin59: { title: 'What the frog\'s eye tells the frog\'s brain', who: 'Lettvin, Maturana, McCulloch & Pitts', year: 1959, link: 'https://doi.org/10.1109/JRPROC.1959.287207', note: '개구리 눈의 뉴런이 이미 \'움직이는 작은 점\' 같은 특징을 골라 보낸다는 발견.' },
+    marr80: { title: 'Theory of edge detection', who: 'Marr & Hildreth', year: 1980, link: 'https://doi.org/10.1098/rspb.1980.0020', note: '밝기가 바뀌는 곳(경계)을 찾는 계산 이론. 경계 필터의 고전.' },
+    hartline56: { title: 'Inhibition in the eye of Limulus', who: 'Hartline, Wagner & Ratliff', year: 1956, link: 'https://doi.org/10.1085/jgp.39.5.651', note: '이웃 뉴런을 억누르는 측면 억제를 투구게 눈에서 측정했다.' },
+    eccles54: { title: 'Cholinergic and inhibitory synapses in a pathway from motor-axon collaterals to motoneurones', who: 'Eccles, Fatt & Koketsu', year: 1954, link: 'https://doi.org/10.1113/jphysiol.1954.sp005226', note: '다음 뉴런을 꺼지게 만드는 억제 시냅스를 척수에서 확인했다.' },
+    elman90: { title: 'Finding structure in time', who: 'Elman', year: 1990, link: 'https://doi.org/10.1207/s15516709cog1402_1', note: '히든 값을 다음 순간의 입력으로 되돌리는 단순 순환망(Elman 망). 시간 속 XOR도 다룬다.' },
+    lstm97: { title: 'Long short-term memory', who: 'Hochreiter & Schmidhuber', year: 1997, link: 'https://doi.org/10.1162/neco.1997.9.8.1735', note: '기억을 남길지 지울지 정하는 문(게이트)으로 긴 기억 문제를 푼 LSTM.' },
+    bengio94: { title: 'Learning long-term dependencies with gradient descent is difficult', who: 'Bengio, Simard & Frasconi', year: 1994, link: 'https://doi.org/10.1109/72.279181', note: '기본 RNN이 먼 과거를 배우기 어려운 까닭(기울기 소실)을 밝혔다.' },
+    hopfield82: { title: 'Neural networks and physical systems with emergent collective computational abilities', who: 'Hopfield', year: 1982, link: 'https://doi.org/10.1073/pnas.79.8.2554', note: '되먹임으로 이어진 뉴런들이 안정된 상태에 머무르며 기억을 담는 호프필드 망.' },
+    fuster71: { title: 'Neuron activity related to short-term memory', who: 'Fuster & Alexander', year: 1971, link: 'https://doi.org/10.1126/science.173.3997.652', note: '자극이 사라진 뒤에도 계속 발화하며 정보를 붙잡는 뉴런을 원숭이 뇌에서 찾았다.' },
+    lloyd82: { title: 'Least squares quantization in PCM', who: 'Lloyd', year: 1982, link: 'https://doi.org/10.1109/TIT.1982.1056489', note: '\'묶기 → 평균으로 옮기기\'를 되풀이하는 k-평균 알고리즘의 원전(1957년 보고서).' },
+    kpp07: { title: 'k-means++: The advantages of careful seeding', who: 'Arthur & Vassilvitskii', year: 2007, link: 'https://theory.stanford.edu/~sergei/papers/kMeansPP-soda.pdf', note: '시작 자리를 잘 골라서 엉뚱한 답에 갇히는 일을 줄이는 k-평균++.' },
+    thorndike53: { title: 'Who belongs in the family?', who: 'Thorndike', year: 1953, link: 'https://doi.org/10.1007/BF02289263', note: '무리 수를 바꿔 가며 흩어짐이 꺾이는 곳을 보는 \'팔꿈치\' 방법의 시작.' },
+    rz85: { title: 'Feature discovery by competitive learning', who: 'Rumelhart & Zipser', year: 1985, link: 'https://doi.org/10.1207/s15516709cog0901_5', note: '가장 잘 맞는 뉴런만 이겨서 배우는 경쟁 학습으로 정답 없이 특징을 찾는다.' },
+    kohonen82: { title: 'Self-organized formation of topologically correct feature maps', who: 'Kohonen', year: 1982, link: 'https://doi.org/10.1007/BF00337288', note: '비슷한 입력이 이웃한 뉴런에 모이도록 스스로 정리되는 자기조직화 지도.' },
+    hs06: { title: 'Reducing the dimensionality of data with neural networks', who: 'Hinton & Salakhutdinov', year: 2006, link: 'https://doi.org/10.1126/science.1127647', note: '깊은 오토인코더로 데이터를 작은 코드로 줄였다가 살려 낸 논문.' },
+    vincent08: { title: 'Extracting and composing robust features with denoising autoencoders', who: 'Vincent, Larochelle, Bengio & Manzagol', year: 2008, link: 'https://doi.org/10.1145/1390156.1390294', note: '잡음 섞인 입력에서 원본을 살리게 배우는 디노이징 오토인코더.' },
+    vae: { title: 'Auto-Encoding Variational Bayes', who: 'Kingma & Welling', year: 2013, link: 'https://arxiv.org/abs/1312.6114', note: '잠재 공간에서 새 데이터를 뽑아 그려 내는 변분 오토인코더(VAE).' },
+    ddpm: { title: 'Denoising Diffusion Probabilistic Models', who: 'Ho, Jain & Abbeel', year: 2020, link: 'https://arxiv.org/abs/2006.11239', note: '잡음을 조금씩 걷어 내며 그림을 그리는 확산 모델. 그림 생성 AI의 바탕.' },
+    w2v: { title: 'Efficient estimation of word representations in vector space', who: 'Mikolov, Chen, Corrado & Dean', year: 2013, link: 'https://arxiv.org/abs/1301.3781', note: '단어를 뜻이 담긴 숫자 묶음(임베딩)으로 바꾸는 word2vec.' },
+    bcv13: { title: 'Representation learning: A review and new perspectives', who: 'Bengio, Courville & Vincent', year: 2013, link: 'https://arxiv.org/abs/1206.5538', note: '좋은 표현을 스스로 배우는 법을 정리한 리뷰.' },
+    okeefe71: { title: 'The hippocampus as a spatial map. Preliminary evidence from unit activity in the freely-moving rat', who: 'O\'Keefe & Dostrovsky', year: 1971, link: 'https://doi.org/10.1016/0006-8993(71)90358-1', note: '쥐가 특정 자리에 있을 때만 발화하는 장소 세포의 발견.' },
+    hafting05: { title: 'Microstructure of a spatial map in the entorhinal cortex', who: 'Hafting, Fyhn, Molden, Moser & Moser', year: 2005, link: 'https://doi.org/10.1038/nature03721', note: '공간을 격자 모양 코드로 나타내는 격자 세포의 발견.' },
+    sutton18: { title: 'Reinforcement Learning: An Introduction (2nd ed.)', who: 'Sutton & Barto', year: 2018, link: 'http://incompleteideas.net/book/the-book-2nd.html', note: '강화학습의 교과서. 저자들이 전문을 무료로 공개했다.' },
+    schultz97: { title: 'A neural substrate of prediction and reward', who: 'Schultz, Dayan & Montague', year: 1997, link: 'https://doi.org/10.1126/science.275.5306.1593', note: '도파민 뉴런이 \'예상보다 좋았나\'를 신호로 보낸다는 발견. 뇌의 보상 학습.' },
+    dqn15: { title: 'Human-level control through deep reinforcement learning', who: 'Mnih et al.', year: 2015, link: 'https://doi.org/10.1038/nature14236', note: '화면과 점수만 보고 아타리 게임을 사람 수준으로 배운 DQN.' },
+    es17: { title: 'Evolution strategies as a scalable alternative to reinforcement learning', who: 'Salimans, Ho, Chen, Sidor & Sutskever', year: 2017, link: 'https://arxiv.org/abs/1703.03864', note: '가중치를 조금씩 흔든 후보 중 점수가 높은 쪽으로 가는 진화 전략. 5장의 학습 방식과 같은 생각.' },
+    amodei16: { title: 'Concrete problems in AI safety', who: 'Amodei et al.', year: 2016, link: 'https://arxiv.org/abs/1606.06565', note: '보상 해킹처럼 AI가 의도와 다르게 점수만 올리는 문제들을 정리했다.' },
+    skinner58: { title: 'Reinforcement today', who: 'Skinner', year: 1958, link: 'https://doi.org/10.1037/h0049039', note: '목표 행동에 조금씩 다가갈 때마다 보상하는 \'조형(shaping)\'을 소개했다.' },
+    thorndike98: { title: 'Animal intelligence: An experimental study of the associative processes in animals', who: 'Thorndike', year: 1898, link: 'https://doi.org/10.1037/h0092987', note: '결과가 좋으면 늘고 나쁘면 줄어드는 \'효과의 법칙\'. 보상·벌점 학습의 출발점.' },
+    szegedy13: { title: 'Intriguing properties of neural networks', who: 'Szegedy et al.', year: 2013, link: 'https://arxiv.org/abs/1312.6199', note: '사람 눈에 안 보이는 작은 변화로 신경망을 속이는 적대적 예제를 처음 보고했다.' },
+    goodfellow14: { title: 'Explaining and harnessing adversarial examples', who: 'Goodfellow, Shlens & Szegedy', year: 2014, link: 'https://arxiv.org/abs/1412.6572', note: '적대적 예제가 왜 생기는지 설명하고 막는 방법을 제안했다.' },
+    cybenko89: { title: 'Approximation by superpositions of a sigmoidal function', who: 'Cybenko', year: 1989, link: 'https://doi.org/10.1007/BF02551274', note: '히든 층 하나에 뉴런이 충분하면 어떤 모양의 함수도 흉내 낼 수 있다(보편 근사).' },
+    hornik89: { title: 'Multilayer feedforward networks are universal approximators', who: 'Hornik, Stinchcombe & White', year: 1989, link: 'https://doi.org/10.1016/0893-6080(89)90020-8', note: '여러 층 신경망이 보편 근사기임을 보인 또 하나의 고전.' },
+    fisher36: { title: 'The use of multiple measurements in taxonomic problems', who: 'Fisher', year: 1936, link: 'https://doi.org/10.1111/j.1469-1809.1936.tb02137.x', note: '측정값에 가중치를 곱해 더한 직선으로 붓꽃 종을 나눈 선형 판별 분석.' },
+    zhang16: { title: 'Understanding deep learning requires rethinking generalization', who: 'Zhang, Bengio, Hardt, Recht & Vinyals', year: 2016, link: 'https://arxiv.org/abs/1611.03530', note: '신경망은 무작위 꼬리표까지 외울 수 있다. 외우기와 일반화의 차이를 다시 묻는다.' },
+    dropout14: { title: 'Dropout: A simple way to prevent neural networks from overfitting', who: 'Srivastava, Hinton, Krizhevsky, Sutskever & Salakhutdinov', year: 2014, link: 'https://jmlr.org/papers/v15/srivastava14a.html', note: '학습 중에 뉴런을 무작위로 꺼서 과적합을 줄이는 드롭아웃.' },
+    robbins51: { title: 'A stochastic approximation method', who: 'Robbins & Monro', year: 1951, link: 'https://doi.org/10.1214/aoms/1177729586', note: '조금씩 고쳐 가며 답에 다가가는 확률적 근사. 경사 하강법과 학습률의 수학적 뿌리.' },
+    adam14: { title: 'Adam: A method for stochastic optimization', who: 'Kingma & Ba', year: 2014, link: 'https://arxiv.org/abs/1412.6980', note: '가중치마다 걸음 크기(학습률)를 알아서 맞추는 Adam. 지금 가장 널리 쓰인다.' },
+    widrow90: { title: '30 years of adaptive neural networks: perceptron, Madaline, and backpropagation', who: 'Widrow & Lehr', year: 1990, link: 'https://doi.org/10.1109/5.58323', note: '델타 규칙(LMS)을 만든 위드로가 퍼셉트론부터 역전파까지 학습 규칙을 정리했다.' },
+    white86: { title: 'The structure of the nervous system of the nematode Caenorhabditis elegans', who: 'White, Southgate, Thomson & Brenner', year: 1986, link: 'https://doi.org/10.1098/rstb.1986.0056', note: '예쁜꼬마선충 뉴런 302개의 연결을 모두 그린 최초의 커넥톰.' },
+    grillner06: { title: 'Biological pattern generation: The cellular and computational logic of networks in motion', who: 'Grillner', year: 2006, link: 'https://doi.org/10.1016/j.neuron.2006.11.008', note: '뇌의 명령 없이도 걷기·헤엄 리듬을 만드는 중추 패턴 발생기 회로.' },
+    walter50: { title: 'An imitation of life', who: 'Walter', year: 1950, link: 'https://doi.org/10.1038/scientificamerican0550-42', note: '빛 센서 두 개와 바퀴로 빛을 찾아가는 로봇 거북. 이 게임 생명체의 할아버지.' },
+    kandel70: { title: 'Neuronal mechanisms of habituation and dishabituation of the gill-withdrawal reflex in Aplysia', who: 'Castellucci, Pinsker, Kupfermann & Kandel', year: 1970, link: 'https://doi.org/10.1126/science.167.3926.1745', note: '군소의 아가미 움츠리기 반사를 뉴런 몇 개 수준에서 밝혔다.' },
+    woolsey70: { title: 'The structural organization of layer IV in the somatosensory region (SI) of mouse cerebral cortex', who: 'Woolsey & Van der Loos', year: 1970, link: 'https://doi.org/10.1016/0006-8993(70)90079-X', note: '쥐 수염 하나하나가 대뇌 피질의 \'통(barrel)\' 하나씩에 대응하는 촉각 지도.' },
+    li18: { title: 'Visualizing the loss landscape of neural nets', who: 'Li, Xu, Taylor, Studer & Goldstein', year: 2018, link: 'https://arxiv.org/abs/1712.09913', note: '실제 신경망의 오차 지형을 그려서, 골짜기가 넓고 매끈할수록 잘 배운다는 것을 보였다.' },
+    goodfellow15: { title: 'Qualitatively characterizing neural network optimization problems', who: 'Goodfellow, Vinyals & Saxe', year: 2015, link: 'https://arxiv.org/abs/1412.6544', note: '시작점에서 끝점까지 직선을 따라 오차를 재 보며 학습이 지나는 지형을 살폈다.' },
+    polyak64: { title: 'Some methods of speeding up the convergence of iteration methods', who: 'Polyak', year: 1964, link: 'https://doi.org/10.1016/0041-5553(64)90137-5', note: '지난 걸음의 방향을 더해 빨리 내려가는 \'무거운 공(heavy ball)\' 방법. 모멘텀의 원전.' },
+    sutskever13: { title: 'On the importance of initialization and momentum in deep learning', who: 'Sutskever, Martens, Dahl & Hinton', year: 2013, link: 'https://proceedings.mlr.press/v28/sutskever13.html', note: '모멘텀과 좋은 시작값만으로도 깊은 신경망을 잘 학습시킬 수 있음을 보였다.' },
+    dauphin14: { title: 'Identifying and attacking the saddle point problem in high-dimensional non-convex optimization', who: 'Dauphin et al.', year: 2014, link: 'https://arxiv.org/abs/1406.2572', note: '차원이 아주 많으면 웅덩이보다 안장점이 학습을 더 많이 늦춘다는 것을 밝혔다.' },
+    duchi11: { title: 'Adaptive subgradient methods for online learning and stochastic optimization', who: 'Duchi, Hazan & Singer', year: 2011, link: 'https://jmlr.org/papers/v12/duchi11a.html', note: '가중치마다 지금까지의 기울기 크기로 걸음을 나누는 AdaGrad. Adam의 바탕.' },
+    bellman52: { title: 'On the theory of dynamic programming', who: 'Bellman', year: 1952, link: 'https://doi.org/10.1073/pnas.38.8.716', note: '큰 문제를 \'지금 한 걸음 + 남은 문제\'로 쪼개는 동적 계획법. 벨만 방정식의 출발점.' },
+    samuelson37: { title: 'A note on measurement of utility', who: 'Samuelson', year: 1937, link: 'https://doi.org/10.2307/2967612', note: '미래의 만족을 일정한 비율로 깎아 더하는 할인 효용 모델. 할인율 γ의 경제학 쪽 뿌리.' },
+    watkins92: { title: 'Q-learning', who: 'Watkins & Dayan', year: 1992, link: 'https://doi.org/10.1007/BF00992698', note: 'Q러닝이 충분히 탐험하면 가장 좋은 행동 점수로 모인다는 것을 증명했다.' },
+    auer02: { title: 'Finite-time analysis of the multiarmed bandit problem', who: 'Auer, Cesa-Bianchi & Fischer', year: 2002, link: 'https://doi.org/10.1023/A:1013689704352', note: '여러 슬롯머신 중 무엇을 당길지(탐험과 활용)를 수학적으로 다룬 고전. ε-탐욕과 UCB를 비교한다.' },
+    bridle90: { title: 'Probabilistic interpretation of feedforward classification network outputs, with relationships to statistical pattern recognition', who: 'Bridle', year: 1990, link: 'https://doi.org/10.1007/978-3-642-76153-9_28', note: '출력을 확률로 읽게 하는 \'소프트맥스\'라는 이름과 쓰임을 정리한 논문.' },
+    guo17: { title: 'On calibration of modern neural networks', who: 'Guo, Pleiss, Sun & Weinberger', year: 2017, link: 'https://arxiv.org/abs/1706.04599', note: '요즘 신경망은 틀릴 때도 지나치게 확신한다는 것을 보이고, 온도로 확률을 바로잡는 법을 제안했다.' },
+    hinton15: { title: 'Distilling the knowledge in a neural network', who: 'Hinton, Vinyals & Dean', year: 2015, link: 'https://arxiv.org/abs/1503.02531', note: '소프트맥스에 온도를 넣어 확률을 부드럽게 만들고, 큰 모델의 지식을 작은 모델에 옮긴다.' },
+    shannon48: { title: 'A mathematical theory of communication', who: 'Shannon', year: 1948, link: 'https://doi.org/10.1002/j.1538-7305.1948.tb01338.x', note: '정보의 양과 엔트로피를 정의한 정보 이론의 출발점. 교차 엔트로피라는 말이 여기서 나왔다.' },
+    gers00: { title: 'Learning to forget: Continual prediction with LSTM', who: 'Gers, Schmidhuber & Cummins', year: 2000, link: 'https://doi.org/10.1162/089976600300015015', note: 'LSTM에 망각 게이트를 더해, 쌓이기만 하던 셀 기억을 스스로 지울 수 있게 했다.' },
+    greff17: { title: 'LSTM: A search space odyssey', who: 'Greff, Srivastava, Koutník, Steunebrink & Schmidhuber', year: 2017, link: 'https://arxiv.org/abs/1503.04069', note: 'LSTM의 게이트를 하나씩 빼 보며 어떤 부품이 중요한지 대규모로 비교했다. 망각 게이트와 출력 쪽이 핵심.' },
+    cho14: { title: 'Learning phrase representations using RNN encoder-decoder for statistical machine translation', who: 'Cho et al.', year: 2014, link: 'https://arxiv.org/abs/1406.1078', note: '게이트 두 개로 LSTM을 단순하게 만든 GRU를 처음 내놓은 논문.' },
+  };
+  const CONCEPT_PAPERS = {
+    neuron: ['mp43'],
+    weight: ['ros58'],
+    sum: ['mp43'],
+    threshold: ['ros58', 'mp43'],
+    negative: ['eccles54'],
+    xor: ['rhw86'],
+    andnot: ['shannon38'],
+    xnor: ['shannon38'],
+    majority: ['mp43', 'shannon38'],
+    exactlyOne: ['shannon38'],
+    adder: ['shannon38'],
+    nand: ['sheffer13'],
+    bias: ['grillner06'],
+    cross: ['walter50'],
+    reflex: ['kandel70'],
+    inhibition: ['hartline56'],
+    whisker: ['woolsey70'],
+    hidden: ['rhw86'],
+    adversarial: ['szegedy13', 'goodfellow14'],
+    learning: ['widrow90', 'ros58'],
+    rate: ['robbins51', 'adam14'],
+    limit: ['rhw86'],
+    backprop: ['rhw86'],
+    reward: ['sutton18', 'schultz97', 'es17', 'dqn15'],
+    shaping: ['skinner58'],
+    penalty: ['thorndike98'],
+    hacking: ['amodei16'],
+    boundary: ['fisher36', 'ros58'],
+    slope: ['fisher36'],
+    shape: ['cybenko89'],
+    shapes: ['hornik89', 'cybenko89'],
+    overfit: ['zhang16', 'dropout14'],
+    gradient: ['robbins51', 'rhw86'],
+    conv: ['hw59', 'lecun89'],
+    featuremap: ['hw62', 'fuku80'],
+    edge: ['marr80', 'lettvin59'],
+    pooling: ['lecun98', 'alexnet'],
+    recurrent: ['elman90'],
+    latch: ['fuster71', 'hopfield82'],
+    sequence: ['elman90'],
+    longmem: ['bengio94', 'lstm97'],
+    parity: ['elman90'],
+    unsupervised: ['rz85', 'kohonen82'],
+    kmeans: ['lloyd82'],
+    localmin: ['kpp07'],
+    choosek: ['thorndike53'],
+    autoencoder: ['hs06'],
+    latent: ['vae', 'okeefe71', 'hafting05'],
+    denoise: ['vincent08', 'ddpm'],
+    representation: ['bcv13', 'w2v'],
+    connectome: ['white86'],
+    landscape: ['li18', 'goodfellow15'],
+    momentum: ['polyak64', 'sutskever13'],
+    escape: ['dauphin14'],
+    adam: ['adam14', 'duchi11'],
+    valuefn: ['bellman52', 'schultz97'],
+    discount: ['samuelson37', 'sutton18'],
+    qlearning: ['watkins92', 'dqn15'],
+    explore: ['auer02'],
+    softmax: ['bridle90'],
+    confidence: ['guo17', 'hinton15'],
+    multiclass: ['lecun98'],
+    crossentropy: ['shannon48'],
+    gate: ['lstm97'],
+    inputgate: ['lstm97'],
+    forgetgate: ['gers00'],
+    lstm: ['greff17', 'cho14'],
+  };
+
+  SA.content = { PAPERS, CONCEPT_PAPERS, B, TAGS, SIGMAS, REWARD_STAGES: REWARDS, GLOSSARY, FUNCS_ALL, STAGES, TRACKS, CHAPTERS, PUZZLE_STAGES: PUZZLES, RATES, ARENA_STAGES: ARENA, LOGIC_STAGES: LOGIC, TRAIN_STAGES: TRAIN, VERSUS_ARENAS, VERSUS_SENSORS, RIVALS, LAB_ARENAS, CONCEPTS };
 })();

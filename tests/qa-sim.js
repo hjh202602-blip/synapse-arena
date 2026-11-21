@@ -196,8 +196,9 @@ for (const st of ALL) {
     const r = sim.evalLogic(st, sol);
     let testAcc = null;
     if (st.test) { const t = sim.evalLogic({ rows: st.test, inputs: st.inputs, outputs: st.outputs }, sol); testAcc = t.rows.filter((x) => x.ok).length / st.test.length; }
-    const ok = st.need && st.need.test ? testAcc >= st.need.test : r.ok;
-    check(ok && allStars(pass(st, { status: ok ? 'success' : 'fail', testAcc }, sol)), `${tag}: 정답 → 성공, 별 3개`);
+    const confidence = st.classes ? r.rows.reduce((a, x) => a + x.p, 0) / r.rows.length : null;
+    const ok = st.need && st.need.test ? testAcc >= st.need.test : r.ok && (!(st.need && st.need.confidence) || confidence >= st.need.confidence);
+    check(ok && allStars(pass(st, { status: ok ? 'success' : 'fail', testAcc, confidence }, sol)), `${tag}: 정답 → 성공, 별 3개${confidence != null ? ` (정답 확률 평균 ${Math.round(confidence * 100)}%)` : ''}`);
     const er = sim.evalLogic(st, emptyB());
     check(!er.ok, `${tag}: 빈 뇌로는 못 깸`);
   } else if (st.type === 'train') {
@@ -221,10 +222,12 @@ for (const st of ALL) {
     const r = sim.evalSeq(st, sol);
     check(r.ok && allStars(pass(st, { status: 'success' }, sol)), `${tag}: 정답 → 성공, 별 3개`);
     check(!sim.evalSeq(st, emptyB()).ok, `${tag}: 빈 뇌로는 못 깸`);
-    // 기억 없이는 못 푼다: 같은 입력인데 목표가 다른 칸이 있다
-    const seen = {}; let contra = false;
-    for (const q of st.seqs) q.x.forEach((x, i) => { if (q.t[i] == null) return; if (seen[x] !== undefined && seen[x] !== q.t[i]) contra = true; seen[x] = q.t[i]; });
-    check(contra, `${tag}: 지금 입력만 봐서는 풀 수 없음(기억이 꼭 필요)`);
+    // 기억 뉴런이 있는 실험은 기억 없이는 못 푼다: 같은 입력인데 목표가 다른 칸이 있다
+    if (st.sensors.some((id) => sim.MEM_SRC[id])) {
+      const seen = {}; let contra = false;
+      for (const q of st.seqs) q.x.forEach((x, i) => { if (q.t[i] == null) return; const k = JSON.stringify(x); if (seen[k] !== undefined && Math.abs(seen[k] - q.t[i]) > (st.tol || 0)) contra = true; seen[k] = q.t[i]; });
+      check(contra, `${tag}: 지금 입력만 봐서는 풀 수 없음(기억이 꼭 필요)`);
+    }
   } else if (st.type === 'cluster') {
     const sol = st.solution;
     let cs, steps = 0, kTried = 1;
@@ -235,6 +238,31 @@ for (const st of ALL) {
     check(ok && allStars(pass(st, { status: ok ? 'success' : 'fail', inertia: sim.kmInertia(st.pts, cs), steps, kTried }, emptyB())), `${tag}: 정답 → 성공, 별 3개 (거리 합 ${sim.kmInertia(st.pts, cs).toFixed(3)})`);
     const start = st.chooseK ? st.inits[st.k0] : st.init;
     check(!sim.kmMatches(st.pts, start), `${tag}: 처음 자리 그대로는 못 깸`);
+  } else if (st.type === 'descent') {
+    const r = sim.descRun(st, st.solution);
+    check(r.ok && allStars(pass(st, { status: 'success', steps: r.steps, startMoved: false, opt: st.solution.opt }, emptyB())), `${tag}: 정답 설정 → ${r.steps}걸음 만에 바닥, 별 3개`);
+    check(!sim.descArrived(st, sim.descInit(st.start)), `${tag}: 출발점은 바닥이 아님`);
+  } else if (st.type === 'grid') {
+    const g = sim.gridOf(st), sol = st.solution;
+    let res;
+    if (st.mode === 'vi') {
+      const gamma = sol.gamma != null ? sol.gamma : st.gamma;
+      let V = new Array(g.N).fill(0);
+      for (let n = 0; n < sol.sweeps; n++) V = sim.valueSweep(st, g, V, gamma);
+      const pth = sim.greedyPath(st, g, (i) => sim.vActionValues(st, g, V, gamma, i));
+      res = { ok: !pth.stuck && g.cell[pth.end] === st.target, sweeps: sol.sweeps, gamma };
+    } else {
+      const Q = Array.from({ length: g.N }, () => [0, 0, 0, 0]), rng = sim.makeRng(st.seed);
+      const short = sim.gridShortest(st, g, st.target);
+      let e = 0, ok = false;
+      while (!ok && e < st.maxEpisodes) {
+        sim.qEpisode(st, g, Q, { alpha: sol.alpha, eps: sol.eps, gamma: st.gamma }, rng); e++;
+        const pth = sim.greedyPath(st, g, (i) => Q[i]);
+        ok = !pth.stuck && g.cell[pth.end] === st.target && (!st.shortest || pth.path.length - 1 === short);
+      }
+      res = { ok, episodes: e, gamma: st.gamma };
+    }
+    check(res.ok && allStars(pass(st, Object.assign({ status: 'success' }, res), emptyB())), `${tag}: 정답 설정 → 목표까지 길이 이어짐, 별 3개 (${st.mode === 'vi' ? res.sweeps + '번 퍼뜨림' : res.episodes + '판'})`);
   } else if (st.type === 'reward') {
     // 강화학습: 정답 점수 규칙으로 maxGens 안에 목표를 배우는지 (시간이 걸려서 앞의 두 실험만 돌린다)
     if (!['R1', 'R2'].includes(st.id)) continue;
@@ -278,12 +306,42 @@ console.log('■ 8~10장 힌트에 적은 말이 맞는지');
   check(runC6(0.02) === 25 && runC6(0.1) === 7 && runC6(0.3) === 5 && runC6(1) === null && runC6(3) === null, 'C6 학습률별 학습 횟수가 힌트와 같음(여러 출력 학습으로 바꾼 뒤에도)');
 }
 
+console.log('■ 심화 장 힌트에 적은 말이 맞는지');
+{
+  const S = (id) => ALL.find((x) => x.id === id);
+  const steps = (id, o, start) => { const r = sim.descRun(S(id), o, start); return r.ok ? r.steps : r.diverged ? 'X' : null; };
+  check(steps('D1', { opt: 'gd', lr: 0.05 }) === null && steps('D1', { opt: 'gd', lr: 0.1 }) === 53 && steps('D1', { opt: 'gd', lr: 0.2 }) === 26 && steps('D1', { opt: 'gd', lr: 0.3 }) === 'X', 'D1 학습률 0.05 못 닿음 · 0.1은 53걸음 · 0.2는 26걸음 · 0.3은 튀어 나감');
+  check(S('D2').lrs.every((lr) => steps('D2', { opt: 'gd', lr }) !== 'ok' && typeof steps('D2', { opt: 'gd', lr }) !== 'number') && steps('D2', { opt: 'momentum', beta: 0.9, lr: 0.05 }) === 55 && steps('D2', { opt: 'momentum', beta: 0.9, lr: 0.3 }) === 58 && steps('D2', { opt: 'momentum', beta: 0.5, lr: 0.5 }) === 36, 'D2 경사 하강은 못 닿고, 모멘텀 β0.9는 55·58걸음, β0.5·0.5는 36걸음');
+  check(S('D3').lrs.every((lr) => typeof steps('D3', { opt: 'gd', lr }) !== 'number') && steps('D3', { opt: 'momentum', beta: 0.9, lr: 0.3 }) === 52 && steps('D3', { opt: 'momentum', beta: 0.9, lr: 0.5 }) === 50 && S('D3').lrs.every((lr) => typeof steps('D3', { opt: 'momentum', beta: 0.5, lr }) !== 'number') && typeof steps('D3', { opt: 'gd', lr: 0.2 }, [2.5, 2.5]) === 'number', 'D3 경사 하강·β0.5는 웅덩이에 갇히고, β0.9는 52·50걸음, 출발점을 옮기면 경사 하강도 됨');
+  check(S('D4').lrs.every((lr) => typeof steps('D4', { opt: 'gd', lr }) !== 'number' && typeof steps('D4', { opt: 'momentum', beta: 0.9, lr }) !== 'number') && [[0.1, 63], [0.2, 59], [0.3, 60], [0.5, 65]].every(([lr, n]) => steps('D4', { opt: 'adam', lr }) === n), 'D4 경사 하강·모멘텀은 못 닿고 Adam은 63·59·60·65걸음');
+  const viEnd = (id, gamma, sweeps) => { const st = S(id), g = sim.gridOf(st); let V = new Array(g.N).fill(0); for (let n = 0; n < sweeps; n++) V = sim.valueSweep(st, g, V, gamma); const pth = sim.greedyPath(st, g, (i) => sim.vActionValues(st, g, V, gamma, i)); return pth.stuck ? null : g.cell[pth.end]; };
+  check(viEnd('Q1', 0.9, 13) === null && viEnd('Q1', 0.9, 14) === 'G', 'Q1 14번 퍼뜨려야 길이 이어짐');
+  check(viEnd('Q2', 0.5, 30) === 'g' && viEnd('Q2', 0.6, 30) === 'g' && viEnd('Q2', 0.7, 6) === 'G' && viEnd('Q2', 0.7, 5) === 'g', 'Q2 γ 0.6 이하는 작은 보상, 0.7은 6번 퍼뜨리면 큰 보상');
+  const qEp = (id, alpha, eps) => { const st = S(id), g = sim.gridOf(st), Q = Array.from({ length: g.N }, () => [0, 0, 0, 0]), rng = sim.makeRng(st.seed), short = sim.gridShortest(st, g, st.target);
+    for (let e = 1; e <= st.maxEpisodes; e++) { sim.qEpisode(st, g, Q, { alpha, eps, gamma: st.gamma }, rng); const pth = sim.greedyPath(st, g, (i) => Q[i]); if (!pth.stuck && g.cell[pth.end] === st.target && (!st.shortest || pth.path.length - 1 === short)) return e; } return null; };
+  check([0, 0.1, 0.3].every((e) => { const n = qEp('Q3', 0.1, e); return n >= 38 && n <= 47; }) && [0, 0.1, 0.3].every((e) => qEp('Q3', 1, e) <= 12), 'Q3 α 0.1은 38~47판, α 1은 12판 안');
+  check(qEp('Q4', 0.5, 0) === null && qEp('Q4', 0.5, 0.1) === null && qEp('Q4', 0.5, 0.3) === 31 && qEp('Q4', 0.5, 0.5) === 8 && qEp('Q4', 1, 0.3) === 13 && qEp('Q4', 1, 0.5) === 8, 'Q4 ε 0·0.1은 작은 보상에 머물고, ε 0.3·0.5는 31·8판(α 0.5), 13·8판(α 1)');
+  const conf = (w, b) => { const st = S('SM2'), br = Object.assign(B(`inX>out:${-w}`, `bias>out:${b}`, `inX>out2:${w}`, `bias>out2:${-b}`), { fn: st.fixedFn }); const r = sim.evalLogic(st, br); return r.ok ? Math.round((r.rows.reduce((a, x) => a + x.p, 0) / r.rows.length) * 100) : null; };
+  check(conf(1, 0.5) === 66 && conf(2, 1) === 79 && conf(3, 1.5) === 88, 'SM2 가중치 ±1은 66%, ±2는 79%, ±3은 88%');
+  const ce = (lr) => { const st = S('SM4'), b = JSON.parse(JSON.stringify(st.init)); for (let e = 1; e <= st.maxEpochs; e++) { sim.trainEpoch(st, b, lr); if (sim.evalLogic(st, b).ok) return e; } return null; };
+  check(ce(0.02) === 22 && ce(0.05) === 8 && ce(0.1) === 3 && ce(0.3) === 4 && ce(0.5) === 5 && ce(1) === null && ce(3) === null, 'SM4 학습률별 학습 횟수가 힌트와 같음');
+  const L = (id, b) => sim.evalSeq(S(id), b).ok;
+  check(L('GT1', B('inA>out:1', 'inB>out:1', 'bias>out:-1')) && !L('GT1', B('inA>out:1')), 'GT1 기본 함수로 A + B - 1도 되고, 값만 이으면 실패');
+  check(L('GT2', B('inA>h2:1', 'inB>h2:1', 'bias>h2:-1', 'mem1>h3:1', 'inB>h3:-1', 'h2>h1:1', 'h3>h1:1', 'h1>out:1')), 'GT2 곱 없이 기본 함수로도 풀림(힌트와 일치)');
+  check(L('GT3', B('mem1>h2:1', 'inB>h2:-1', 'h2>h1:1', 'inA>h1:1', 'h1>out:1')), 'GT3 기억 1 - B 방법도 풀림(힌트와 일치)');
+  check(!L('GT4', Object.assign(B('inA>h2:1', 'inB>h2:1', 'bias>h4:1', 'inB>h4:-1', 'mem1>h3:1', 'h4>h3:1', 'h2>h1:1', 'h3>h1:1', 'h1>out:1'), { fn: { h2: 'mul', h3: 'mul' } })), 'GT4 읽기 문이 없으면 실패');
+}
+
 console.log('■ 데이터 모양');
 {
   const ids = ALL.map((s) => s.id);
   check(new Set(ids).size === ids.length, `실험 id가 겹치지 않음 (${ids.length}개)`);
   check(ALL.every((s) => s.hints && s.hints.length === 3 && s.solution && s.goalText && s.brief), '모든 실험에 힌트 3개·정답·목표·설명이 있음');
   check(ALL.every((s) => content.CONCEPTS[s.concept]), '모든 실험의 개념 카드가 있음');
+  const { PAPERS, CONCEPT_PAPERS } = content;
+  check(ALL.every((s) => (CONCEPT_PAPERS[s.concept] || []).length > 0), '모든 실험의 개념에 관련 논문이 있음');
+  const keys = Object.values(CONCEPT_PAPERS).flat();
+  check(keys.every((k) => PAPERS[k] && /^https?:\/\//.test(PAPERS[k].link) && PAPERS[k].title && PAPERS[k].year), `논문 ${Object.keys(PAPERS).length}편 모두 제목·연도·링크가 있음`);
   const chapters = [...new Set(ALL.map((s) => s.chapter))];
   check(chapters.length === content.TRACKS[0].chapters.length && chapters.every((c) => content.TRACKS[0].chapters.some((x) => x.no === c)), `장 목록과 실험이 맞음 (${chapters.length}장)`);
 }
