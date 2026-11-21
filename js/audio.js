@@ -36,6 +36,7 @@
     delay.connect(lp); lp.connect(fb); fb.connect(delay);
     lp.connect(wet); wet.connect(bgmBus);
     applyVolumes();
+    loadSfx();
     return ctx;
   }
 
@@ -153,8 +154,58 @@
     src.start(t);
   }
 
-  // ---- 효과음 ----
-  const sfx = {
+  // ---- 효과음: LMMS로 만든 효과음 묶음 파일(music/make_sfx.py). 3초 칸마다 하나씩 들어 있다 ----
+  const SFX_SLOTS = ['click', 'connect', 'remove', 'run', 'eat', 'charged', 'hit', 'success', 'fail', 'discover', 'spike'];
+  const SFX_SLOT_SEC = 3;
+  const SFX_PEAK = { click: 0.04, connect: 0.11, remove: 0.09, run: 0.1, eat: 0.14, charged: 0.13, hit: 0.3, success: 0.14, fail: 0.12, discover: 0.1, spike: 0.04 };
+  const SPIKE_HZ = 880; // 발화 '틱'은 A5(880Hz)로 만들어 두고 재생 속도로 음 높이를 바꾼다
+  let sprite = null, spriteLoading = false;
+  // 칸마다 잘라서 앞뒤의 조용한 부분을 다듬고(mp3 앞의 빈 구간도 여기서 빠진다), 크기를 1로 맞춰 둔다
+  function cutSprite(buf) {
+    const sr = buf.sampleRate, nch = buf.numberOfChannels, out = {};
+    SFX_SLOTS.forEach((name, i) => {
+      // 칸 끝 0.15초는 뺀다: ogg는 다음 칸 소리가 시작되기 직전에 앞울림(pre-echo)이 조금 생긴다
+      const a = Math.floor(i * SFX_SLOT_SEC * sr), b = Math.min(buf.length, Math.floor(((i + 1) * SFX_SLOT_SEC - 0.15) * sr));
+      const chs = [];
+      for (let c = 0; c < nch; c++) chs.push(buf.getChannelData(c).subarray(a, b));
+      let pk = 0;
+      for (const d of chs) for (let j = 0; j < d.length; j++) { const v = Math.abs(d[j]); if (v > pk) pk = v; }
+      if (!pk) return;
+      const th = pk * 0.003, loud = (j) => chs.some((d) => Math.abs(d[j]) > th);
+      let s = 0, e = b - a - 1;
+      while (s < e && !loud(s)) s++;
+      while (e > s && !loud(e)) e--;
+      s = Math.max(0, s - 16); e = Math.min(b - a, e + 256);
+      const nb = ctx.createBuffer(nch, e - s, sr);
+      for (let c = 0; c < nch; c++) { const d = nb.getChannelData(c), src = chs[c]; for (let j = 0; j < e - s; j++) d[j] = src[s + j] / pk; }
+      out[name] = nb;
+    });
+    return out;
+  }
+  function loadSfx() {
+    if (spriteLoading || !ctx) return;
+    spriteLoading = true;
+    fetch(`assets/sfx/sfx.${EXT}?v=1`)
+      .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+      .then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no)))
+      .then((buf) => { sprite = cutSprite(buf); })
+      .catch(() => {}); // 못 불러오면 합성 효과음을 계속 쓴다
+  }
+  // 파일 효과음을 틀었으면 true, 아직 없으면 false(→ 합성 효과음으로 대신)
+  function playSfx(name, o = {}) {
+    const b = sprite && sprite[name];
+    if (!b || !ctx || ctx.state !== 'running') return false;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = b;
+    if (o.rate) src.playbackRate.value = o.rate;
+    g.gain.value = SFX_PEAK[name];
+    src.connect(g); g.connect(sfxBus);
+    src.start(ctx.currentTime + (o.when || 0));
+    return true;
+  }
+
+  // 합성 효과음(파일을 못 불러왔을 때)
+  const synthSfx = {
     click() { tone(1150, 0.05, { type: 'square', gain: 0.03 }); },
     connect() { tone(520, 0.08, { type: 'triangle', gain: 0.09 }); tone(780, 0.12, { type: 'triangle', gain: 0.08, when: 0.06 }); },
     remove() { tone(420, 0.12, { type: 'triangle', gain: 0.07, slide: 0.5 }); },
@@ -165,15 +216,18 @@
     success() { [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.5, { type: 'triangle', gain: 0.09, when: i * 0.09 })); },
     fail() { [392, 330, 262].forEach((f, i) => tone(f, 0.4, { type: 'triangle', gain: 0.09, when: i * 0.14 })); },
     discover() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.6, { type: 'sine', gain: 0.07, when: 0.5 + i * 0.11, send: true })); },
-    // 뉴런이 발화할 때 '틱' — 1초에 너무 많이 나지 않게 제한한다
-    spike(pitch) {
-      if (!vol.spikes || !ctx) return;
-      const now = ctx.currentTime;
-      spikeTimes = spikeTimes.filter((t) => now - t < 1);
-      if (spikeTimes.length > 16) return;
-      spikeTimes.push(now);
-      tone(pitch, 0.03, { type: 'sine', gain: 0.035 });
-    },
+    spike(pitch) { tone(pitch, 0.03, { type: 'sine', gain: 0.035 }); },
+  };
+  const sfx = {};
+  for (const name of SFX_SLOTS) if (name !== 'spike') sfx[name] = () => { if (!playSfx(name, name === 'discover' ? { when: 0.5 } : {})) synthSfx[name](); };
+  // 뉴런이 발화할 때 '틱' — 1초에 너무 많이 나지 않게 제한한다
+  sfx.spike = (pitch) => {
+    if (!vol.spikes || !ctx) return;
+    const now = ctx.currentTime;
+    spikeTimes = spikeTimes.filter((t) => now - t < 1);
+    if (spikeTimes.length > 16) return;
+    spikeTimes.push(now);
+    if (!playSfx('spike', { rate: pitch / SPIKE_HZ })) synthSfx.spike(pitch);
   };
 
   // ---- 배경음: 느린 화음 + 가끔 뜯는 소리(펜타토닉) ----
