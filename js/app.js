@@ -237,11 +237,13 @@
       if (i < 0) return go('home');
       if (!isUnlocked(i)) { toast('이전 실험을 먼저 깨야 열려요'); return go('home'); }
       play.mode = 'stage'; show('play'); openStage(STAGES[i]);
-    } else if (v === 'lab') { play.mode = 'lab'; show('play'); openLab(); }
+      // 배경음: 생명체가 움직이는 실험과 보스 실험은 아레나, 나머지 실험은 생각하는 시간
+      audio.setScene(STAGES[i].type === 'arena' || STAGES[i].boss ? 'arena' : 'think');
+    } else if (v === 'lab') { play.mode = 'lab'; show('play'); openLab(); audio.setScene('think'); }
     else if (v === 'puzzles') { S.settings.tagFilter = '사고력'; save(); go('home'); }
-    else if (v === 'versus') { show('versus'); renderVersus(); }
-    else if (v === 'notes') { show('notes'); renderNotes(); }
-    else { show('home'); renderHome(); }
+    else if (v === 'versus') { show('versus'); renderVersus(); audio.setScene('arena'); }
+    else if (v === 'notes') { show('notes'); renderNotes(); audio.setScene('lab'); }
+    else { show('home'); renderHome(); audio.setScene('lab'); }
   }
   function go(r) {
     const target = '#/' + r;

@@ -1,5 +1,7 @@
 /* 시냅스 아레나 — 소리
- * 모든 소리는 Web Audio로 직접 합성한다(외부 음원 없음 → 저작권 걱정 없음).
+ * 효과음은 Web Audio로 직접 합성한다. 배경음 세 곡은 LMMS로 직접 작곡·렌더링한 파일이다
+ * (music/*.mmp가 원본, music/make_music.py로 다시 만든다). 모두 직접 만든 소리라 저작권 걱정이 없다.
+ * 곡 파일을 못 불러오면 예전의 합성 배경음으로 대신한다.
  * 브라우저 정책 때문에 첫 클릭/키 입력 뒤에야 소리가 난다.
  */
 (function () {
@@ -47,8 +49,70 @@
 
   function unlock() {
     if (!ensure()) return;
-    if (ctx.state === 'suspended') ctx.resume();
-    if (vol.bgmOn && !bgmTimer) startBgm();
+    if (ctx.state === 'suspended') ctx.resume().then(playScene);
+    else playScene();
+  }
+
+  // ---- 배경음 곡(LMMS로 만든 16마디 되풀이 곡) ----
+  const TRACKS = { lab: 84, think: 96, arena: 124 }; // 곡 이름: BPM
+  const TRACK_BARS = 16, TRACK_GAIN = 1.5, FADE = 1.2;
+  const EXT = (() => { try { return new Audio().canPlayType('audio/ogg; codecs="vorbis"') ? 'ogg' : 'mp3'; } catch (e) { return 'mp3'; } })();
+  const loads = {};
+  let scene = 'lab', cur = null, want = 0, useSynth = false;
+  // 렌더링한 파일은 끝에 잔향 한 마디가 더 붙어 있다. 그 잔향을 곡 앞에 겹쳐 넣으면 이음매 없이 되풀이된다.
+  function foldLoop(buf, sec) {
+    const L = Math.round(sec * buf.sampleRate);
+    if (buf.length <= L) return buf;
+    const out = ctx.createBuffer(buf.numberOfChannels, L, buf.sampleRate);
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const s = buf.getChannelData(c), d = out.getChannelData(c);
+      d.set(s.subarray(0, L));
+      for (let i = L; i < s.length; i++) d[(i - L) % L] += s[i];
+    }
+    return out;
+  }
+  function loadTrack(name) {
+    if (!loads[name]) {
+      loads[name] = fetch(`assets/music/${name}.${EXT}?v=1`)
+        .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+        .then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no)))
+        .then((buf) => foldLoop(buf, (TRACK_BARS * 4 * 60) / TRACKS[name]))
+        .catch(() => null);
+    }
+    return loads[name];
+  }
+  function fadeOut(c) {
+    if (!c) return;
+    const t = ctx.currentTime;
+    c.g.gain.cancelScheduledValues(t);
+    c.g.gain.setValueAtTime(c.g.gain.value, t);
+    c.g.gain.linearRampToValueAtTime(0, t + FADE);
+    c.src.stop(t + FADE + 0.05);
+  }
+  function stopMusic() { want++; fadeOut(cur); cur = null; stopBgm(); }
+  function playScene() {
+    if (!ctx || ctx.state !== 'running' || !vol.bgmOn) return;
+    if (useSynth) { if (!bgmTimer) startBgm(); return; }
+    if (cur && cur.name === scene) return;
+    const name = scene, ticket = ++want;
+    loadTrack(name).then((buf) => {
+      if (ticket !== want || !vol.bgmOn) return; // 그사이 다른 화면으로 갔거나 배경음을 껐다
+      if (!buf) { useSynth = true; fadeOut(cur); cur = null; startBgm(); return; }
+      fadeOut(cur);
+      const t = ctx.currentTime;
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      src.buffer = buf; src.loop = true;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(TRACK_GAIN, t + FADE);
+      src.connect(g); g.connect(bgmBus);
+      src.start(t);
+      cur = { src, g, name };
+    });
+  }
+  function setScene(name) {
+    if (!TRACKS[name] || name === scene) return;
+    scene = name;
+    playScene();
   }
 
   function tone(freq, dur, o = {}) {
@@ -177,10 +241,10 @@
     Object.assign(vol, v);
     applyVolumes();
     if (ctx && ctx.state === 'running') {
-      if (vol.bgmOn && !bgmTimer) startBgm();
-      if (!vol.bgmOn) stopBgm();
+      if (vol.bgmOn) playScene();
+      else stopMusic();
     }
   }
 
-  SA.audio = { unlock, setVolumes, sfx, get volumes() { return Object.assign({}, vol); } };
+  SA.audio = { unlock, setVolumes, setScene, sfx, get volumes() { return Object.assign({}, vol); } };
 })();
