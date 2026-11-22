@@ -197,16 +197,23 @@ for (const st of ALL) {
     let testAcc = null;
     if (st.test) { const t = sim.evalLogic({ rows: st.test, inputs: st.inputs, outputs: st.outputs }, sol); testAcc = t.rows.filter((x) => x.ok).length / st.test.length; }
     const confidence = st.classes ? r.rows.reduce((a, x) => a + x.p, 0) / r.rows.length : null;
-    const ok = st.need && st.need.test ? testAcc >= st.need.test : r.ok && (!(st.need && st.need.confidence) || confidence >= st.need.confidence);
+    const n = (st.inputs || ['inA', 'inB']).length;
+    const recallOf = (rr) => { const pos = rr.rows.filter((x) => x.row[n] === 1); return pos.filter((x) => x.ok).length / pos.length; };
+    const accOf = (rr) => rr.rows.filter((x) => x.ok).length / rr.rows.length;
+    const codeOk = (b) => !(st.need && st.need.code != null) || new Set(b.synapses.filter((x) => (st.inputs || []).includes(x.from) && /^h\d+$/.test(x.to)).map((x) => x.to)).size <= st.need.code;
+    const ok = st.need && st.need.recall != null ? recallOf(r) >= st.need.recall && accOf(r) >= st.need.acc
+      : st.need && st.need.test ? testAcc >= st.need.test : r.ok && codeOk(sol) && (!(st.need && st.need.confidence) || confidence >= st.need.confidence);
     check(ok && allStars(pass(st, { status: ok ? 'success' : 'fail', testAcc, confidence }, sol)), `${tag}: 정답 → 성공, 별 3개${confidence != null ? ` (정답 확률 평균 ${Math.round(confidence * 100)}%)` : ''}`);
     const er = sim.evalLogic(st, emptyB());
-    check(!er.ok, `${tag}: 빈 뇌로는 못 깸`);
+    if (st.need && st.need.recall != null) check(recallOf(er) < st.need.recall, `${tag}: 빈 뇌는 정확도 ${Math.round(accOf(er) * 100)}%지만 재현율 ${Math.round(recallOf(er) * 100)}%라 못 깸`);
+    else check(!er.ok, `${tag}: 빈 뇌로는 못 깸`);
   } else if (st.type === 'train') {
-    const run = (lr) => { const b = JSON.parse(JSON.stringify(st.init)); for (let e = 1; e <= (st.maxEpochs || 200); e++) { sim.trainEpoch(st, b, lr); if (sim.evalLogic(st, b).ok) return e; } return null; };
+    const run = (lr, ii) => { const b = JSON.parse(JSON.stringify(st.inits ? st.inits[ii || 0].brain : st.init)); for (let e = 1; e <= (st.maxEpochs || 200); e++) { sim.trainEpoch(st, b, lr); if (sim.evalLogic(st, b).ok) return e; } return null; };
+    if (st.inits) check(RATES.every((lr) => run(lr, 0) === null), `${tag}: 시작 가중치 "${st.inits[0].label}"로는 어떤 학습률로도 못 배움`);
     if (st.goal && st.goal.type === 'epochsAtLeast') {
       check(RATES.every((lr) => run(lr) === null), `${tag}: 어떤 학습률로도 못 배움(한계를 보여 주는 실험)`);
     } else {
-      const e = run(st.solution.lr);
+      const e = run(st.solution.lr, st.solution.init);
       check(e !== null && allStars(pass(st, { status: 'success', epochs: e, rates: 1 }, st.init)), `${tag}: 학습률 ${st.solution.lr} → ${e}번 만에 배움, 별 3개`);
     }
   } else if (st.type === 'vision') {
@@ -330,6 +337,34 @@ console.log('■ 심화 장 힌트에 적은 말이 맞는지');
   check(L('GT2', B('inA>h2:1', 'inB>h2:1', 'bias>h2:-1', 'mem1>h3:1', 'inB>h3:-1', 'h2>h1:1', 'h3>h1:1', 'h1>out:1')), 'GT2 곱 없이 기본 함수로도 풀림(힌트와 일치)');
   check(L('GT3', B('mem1>h2:1', 'inB>h2:-1', 'h2>h1:1', 'inA>h1:1', 'h1>out:1')), 'GT3 기억 1 - B 방법도 풀림(힌트와 일치)');
   check(!L('GT4', Object.assign(B('inA>h2:1', 'inB>h2:1', 'bias>h4:1', 'inB>h4:-1', 'mem1>h3:1', 'h4>h3:1', 'h2>h1:1', 'h3>h1:1', 'h1>out:1'), { fn: { h2: 'mul', h3: 'mul' } })), 'GT4 읽기 문이 없으면 실패');
+}
+
+console.log('■ 도전 문제와 15장 힌트에 적은 말이 맞는지');
+{
+  const S = (id) => ALL.find((x) => x.id === id);
+  const accOn = (st, b, rows) => { const r = sim.evalLogic(Object.assign({}, st, { rows: rows || st.rows }), b); return r.rows.filter((x) => x.ok).length / r.rows.length; };
+  check(!sim.evalLogic(S('L6'), B('inA>h1:1', 'inB>h1:1', 'inC>h1:1', 'bias>h1:-1', 'bias>h2:1', 'inA>h2:-1', 'inB>h2:-1', 'inC>h2:-1', 'h1>out:1', 'h2>out:1')).ok, 'L6 셋 다 켜짐의 문턱이 -1이면 실패');
+  check(!sim.evalLogic(S('P7'), B('inA>out:1', 'inB>out:1', 'inC>out:-1', 'inD>out:-1')).ok, 'P7 2의 자리에도 1을 주면 실패');
+  check(accOn(S('C7'), B('inX>h1:3', 'inY>h1:-3', 'inY>h2:3', 'inX>h2:-3', 'h1>out:1', 'h2>out:1')) < 1, 'C7 대각선 두 개(히든 2개)로는 다 못 맞힘');
+  const V5 = S('V5'), plus = (b) => sim.evalVision(V5, { filters: [{ w: [0, 1, 0, 1, 1, 1, 0, 1, 0], b }] }).ok;
+  check(plus(-4) && plus(-3) && !plus(-2), 'V5 + 필터는 편향 -4·-3이면 되고 -2면 실패');
+  const A5 = S('A5');
+  check(new Set(B('inA>h1:1', 'inB>h2:1').synapses.map((x) => x.to)).size === 2 && A5.need.code === 1, 'A5 코드 한 칸 조건이 있음');
+  const F1 = S('F1'), rr = (b) => { const r = sim.evalLogic(F1, b).rows, pos = r.filter((x) => x.row[2] === 1); return [r.filter((x) => x.ok).length / r.length, pos.filter((x) => x.ok).length / pos.length]; };
+  check(rr(B())[0] === 0.88 && rr(B())[1] === 0 && rr(F1.solution)[0] === 0.92 && rr(F1.solution)[1] === 1 && F1.rows.length === 25, 'F1 빈 뇌는 정확도 88%·재현율 0%, 정답은 92%·100%');
+  const F2 = S('F2');
+  check(accOn(F2, B('inY>out:2', 'bias>out:-0.5')) === 1 && accOn(F2, B('inY>out:2', 'bias>out:-0.5'), F2.test) < 0.9 && accOn(F2, B('inX>out:1', 'inY>out:1', 'bias>out:-0.5'), F2.test) < 0.9, 'F2 배경(y)이나 대각선은 훈련은 맞히고 시험은 90% 미만');
+  const F3 = S('F3');
+  check(accOn(F3, B('inX>out:2', 'bias>out:-0.3')) === 1 && accOn(F3, B('inX>out:2', 'bias>out:-0.3'), F3.test) < 1 && Math.max(...F3.test.filter((x) => !x[2]).map((x) => x[0])) <= 0.47 && Math.min(...F3.test.filter((x) => x[2]).map((x) => x[0])) >= 0.53, 'F3 경계 0.4는 민 점에 속고, 민 점은 0.47·0.53 안쪽');
+  const F4 = S('F4'), tr = (lr) => { const b = JSON.parse(JSON.stringify(F4.inits[1].brain)); for (let e = 1; e <= 200; e++) { sim.trainEpoch(F4, b, lr); if (sim.evalLogic(F4, b).ok) return e; } return null; };
+  check(tr(0.1) === 3 && tr(0.5) === 2, 'F4 조금씩 다르게: 0.1이면 3번, 0.5면 2번');
+}
+
+console.log('■ 태그와 검색 데이터');
+{
+  check(ALL.every((st) => Array.isArray(st.tags) && st.tags.length >= 2), '모든 문제에 태그가 2개 이상');
+  check(ALL.filter((st) => st.extra).every((st) => st.tag === '심화' && st.tags.includes('도전 문제')), '도전 문제는 "심화"로 분류되고 "도전 문제" 태그가 붙음');
+  check(content.STAGE_TAGS.length === new Set(ALL.flatMap((st) => st.tags)).size, '태그 목록이 문제의 태그와 같음');
 }
 
 console.log('■ 데이터 모양');

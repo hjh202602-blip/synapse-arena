@@ -5,7 +5,7 @@
   'use strict';
   const SA = globalThis.SA;
   const { sim, content, audio } = SA;
-  const { STAGES, TRACKS, TAGS, RATES, SIGMAS, LAB_ARENAS, VERSUS_ARENAS, RIVALS, CONCEPTS, GLOSSARY, FUNCS_ALL, PAPERS, CONCEPT_PAPERS } = content;
+  const { STAGES, STAGE_TAGS, TRACKS, TAGS, RATES, SIGMAS, LAB_ARENAS, VERSUS_ARENAS, RIVALS, CONCEPTS, GLOSSARY, FUNCS_ALL, PAPERS, CONCEPT_PAPERS } = content;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -45,7 +45,8 @@
   const trackOf = (st) => TRACKS.find((t) => t.id === st.track) || TRACKS[0];
   const trackList = (st) => STAGES.filter((x) => x.track === st.track);
   const isUnlockedSt = (st) => {
-    const list = trackList(st), k = list.indexOf(st);
+    // 도전 문제(extra)는 잠금 사슬에서 빠진다: 앞 문제를 깨면 열리고, 안 깨도 다음 문제가 열린다
+    const list = trackList(st).filter((x) => !x.extra || x === st), k = list.indexOf(st);
     return S.settings.dev || k <= 0 || list[k - 1].id === 'tut' || cleared(st.id) || cleared(list[k - 1].id);
   };
   const isUnlocked = (i) => isUnlockedSt(STAGES[i]);
@@ -270,35 +271,21 @@
   // ===================================================================
   // 홈
   // ===================================================================
+  // ---- 검색: 문제 이름·목표·설명·태그·개념 이름·장 이름에서 찾는다. 띄어 쓴 낱말은 모두 들어 있어야 한다 ----
+  let homeQuery = '';
+  const norm = (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ');
+  const chapterOf = (st) => TRACKS[0].chapters.find((c) => c.no === st.chapter) || {};
+  const stageText = (st) => norm([st.code, st.title, st.goalText, st.brief, (st.tags || []).join(' '), st.tag,
+    CONCEPTS[st.concept] && CONCEPTS[st.concept].title, chapterOf(st).title, st.chapter + '장'].join(' '));
+  const queryTerms = (q) => norm(q).split(' ').filter(Boolean);
+  const matchStage = (st, terms) => { const t = stageText(st); return terms.every((w) => t.includes(w)); };
   function renderHome() {
     const tr = TRACKS[0];
     const filter = S.settings.tagFilter || '전체';
     const list = STAGES.filter((st) => filter === '전체' || st.tag === filter);
     const clearedN = list.filter((st) => cleared(st.id)).length;
     const starsN = list.reduce((n, st) => n + ((S.progress[st.id] && S.progress[st.id].stars) || []).filter(Boolean).length, 0);
-    const next = STAGES.find((st) => isUnlockedSt(st) && !cleared(st.id) && (filter === '전체' || st.tag === filter)) || list[0] || STAGES[0];
-    const card = (st) => {
-      const p = S.progress[st.id] || {};
-      const locked = !isUnlockedSt(st);
-      return `
-        <button class="stage-card ${st.boss ? 'boss' : ''} ${locked ? 'locked' : ''} ${p.cleared ? 'cleared' : ''}" ${locked ? 'aria-disabled="true"' : `data-go="stage/${st.id}"`}>
-          <span class="no">${st.boss ? '마무리 · ' : ''}${st.code} <span class="tag ${tagClass(st.tag)}">${esc(st.tag)}</span></span>
-          <h3>${esc(st.title)}</h3>
-          ${stageThumb(st)}
-          <p>${esc(st.goalText)}</p>
-          <div class="foot">${starsHtml(p.stars)}${locked ? '<span class="chip" title="앞 문제를 깨면 열려요">잠김</span>' : `<span class="chip">${esc(CONCEPTS[st.concept].title)}</span>`}</div>
-        </button>`;
-    };
-    const chapters = tr.chapters.map((ch) => {
-      const chList = list.filter((st) => st.chapter === ch.no);
-      if (!chList.length) return '';
-      const done = chList.filter((st) => cleared(st.id)).length;
-      return `
-        <div class="section-head chapter-head"><div><div class="eyebrow">${ch.no}장 · ${done}/${chList.length} <span class="tag ${tagClass(ch.tag)}">${esc(ch.tag)}</span></div><h2>${esc(ch.title)}</h2>
-          <p class="muted" style="margin:4px 0 0;max-width:760px">${esc(ch.desc)}</p></div>
-          <button class="btn sm ghost paper-btn" data-papers="${ch.no}">관련 논문 보러 가기 ↗</button></div>
-        <div class="stage-grid">${chList.map(card).join('')}</div>`;
-    }).join('');
+    const next = STAGES.find((st) => !st.extra && isUnlockedSt(st) && !cleared(st.id) && (filter === '전체' || st.tag === filter)) || list[0] || STAGES[0];
     const counts = { '전체': STAGES.length };
     for (const t of TAGS) counts[t] = STAGES.filter((st) => st.tag === t).length;
     const heroText = { eyebrow: 'AI 배우기 · 점은 뉴런, 선은 시냅스', h1: '뇌를 <em>직접 이어</em> 보면<br>AI가 <em class="r">보인다</em>', p: '인공지능의 기본 단위는 뉴런 하나다. 입력에 가중치를 곱해 더하고, 문턱을 넘으면 켜진다. 그 뉴런을 손으로 이어 논리 게이트를 만들고, 생명체를 움직이고, 마지막에는 스스로 배우게 한다. 개념을 배우는 실험과 생각하는 힘을 기르는 퍼즐이 번갈아 나온다.' };
@@ -321,13 +308,82 @@
         <div class="stat-pill"><div class="k">발견한 개념</div><div class="v">${CONCEPT_ORDER.filter(conceptOpen).length} / ${CONCEPT_ORDER.length}</div></div>
         <div class="stat-pill"><div class="k">대결</div><div class="v">${S.versus.played}판</div></div>
       </div>
+      <div class="search-box">
+        <input type="search" id="stageSearch" class="sel" placeholder="문제·개념·태그 검색 (예: 과적합, XOR, CNN, 도전 문제)" value="${esc(homeQuery)}" aria-label="문제 검색" autocomplete="off">
+        <button class="btn sm ghost" id="searchClear" ${homeQuery ? '' : 'hidden'}>지우기</button>
+        <span class="muted" id="searchCount"></span>
+      </div>
+      <details class="tag-cloud" ${homeQuery ? 'open' : ''}><summary>태그로 찾기 <span class="muted">(${STAGE_TAGS.length}개)</span></summary>
+        <div class="stag-list">${STAGE_TAGS.map((t) => `<button class="stag" data-q="${esc(t)}">#${esc(t)}</button>`).join('')}</div></details>
       <div class="tag-filter"><span class="muted">분류</span>
         <div class="seg" id="tagSeg">${['전체'].concat(TAGS).map((t) => `<button data-t="${t}" class="${t === filter ? 'on' : ''}">${esc(t)} <span class="cnt">${counts[t]}</span></button>`).join('')}</div>
-        <span class="muted tag-help">AI 개념: 인공지능의 원리를 배우는 실험 · 사고력: 조건을 쪼개고 조립하는 퍼즐 · 심화: 앞 장을 한 걸음 더 깊이</span></div>
-      ${chapters}`;
+        <span class="muted tag-help">AI 개념: 인공지능의 원리를 배우는 실험 · 사고력: 조건을 쪼개고 조립하는 퍼즐 · 심화: 앞 장을 한 걸음 더 깊이 파는 장과 장마다 붙은 도전 문제(건너뛰어도 다음 문제가 열려요)</span></div>
+      <div id="homeList"></div>`;
     $$('#tagSeg button').forEach((b) => (b.onclick = () => { S.settings.tagFilter = b.dataset.t; save(); renderHome(); }));
-    $$('#view-home [data-papers]').forEach((b) => (b.onclick = () => openPapers(+b.dataset.papers)));
+    const box = $('#stageSearch');
+    box.oninput = () => { homeQuery = box.value; renderHomeList(); };
+    box.onkeydown = (e) => { if (e.key === 'Escape') { homeQuery = ''; box.value = ''; renderHomeList(); } };
+    $('#searchClear').onclick = () => { homeQuery = ''; box.value = ''; renderHomeList(); box.focus(); };
+    $$('#view-home .tag-cloud .stag').forEach((b) => (b.onclick = () => setQuery(b.dataset.q)));
+    renderHomeList();
     hero.attach($('#heroCanvas'));
+  }
+  function setQuery(q) {
+    homeQuery = q;
+    const box = $('#stageSearch');
+    if (box) box.value = q;
+    renderHomeList();
+    const lst = $('#homeList');
+    if (lst) lst.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+  function renderHomeList() {
+    const tr = TRACKS[0];
+    const filter = S.settings.tagFilter || '전체';
+    const terms = queryTerms(homeQuery);
+    const list = STAGES.filter((st) => (filter === '전체' || st.tag === filter) && (!terms.length || matchStage(st, terms)));
+    const card = (st) => {
+      const p = S.progress[st.id] || {};
+      const locked = !isUnlockedSt(st);
+      return `
+        <button class="stage-card ${st.boss ? 'boss' : ''} ${locked ? 'locked' : ''} ${p.cleared ? 'cleared' : ''}" ${locked ? 'aria-disabled="true"' : `data-go="stage/${st.id}"`}>
+          <span class="no">${st.boss ? '마무리 · ' : ''}${st.code} <span class="tag ${tagClass(st.tag)}">${esc(st.tag)}</span></span>
+          <h3>${esc(st.title)}</h3>
+          ${stageThumb(st)}
+          <p>${esc(st.goalText)}</p>
+          <div class="stags">${(st.tags || []).map((t) => `<span class="stag" data-q="${esc(t)}" title="이 태그로 찾기">#${esc(t)}</span>`).join('')}</div>
+          <div class="foot">${starsHtml(p.stars)}${locked ? '<span class="chip" title="앞 문제를 깨면 열려요">잠김</span>' : `<span class="chip">${esc(CONCEPTS[st.concept].title)}</span>`}</div>
+        </button>`;
+    };
+    const chapters = tr.chapters.map((ch) => {
+      const chList = list.filter((st) => st.chapter === ch.no);
+      if (!chList.length) return '';
+      const done = chList.filter((st) => cleared(st.id)).length;
+      return `
+        <div class="section-head chapter-head"><div><div class="eyebrow">${ch.no}장 · ${done}/${chList.length} <span class="tag ${tagClass(ch.tag)}">${esc(ch.tag)}</span></div><h2>${esc(ch.title)}</h2>
+          <p class="muted" style="margin:4px 0 0;max-width:760px">${esc(ch.desc)}</p></div>
+          <button class="btn sm ghost paper-btn" data-papers="${ch.no}">관련 논문 보러 가기 ↗</button></div>
+        <div class="stage-grid">${chList.map(card).join('')}</div>`;
+    }).join('');
+    // 검색어가 있으면 개념 노트(기본 용어·열린 개념 카드)에서 찾은 것도 함께 보여 준다
+    let notes = '';
+    if (terms.length) {
+      const hit = (t) => { const n = norm(t); return terms.every((w) => n.includes(w)); };
+      const gl = GLOSSARY.filter((g) => hit(g.term + ' ' + g.en + ' ' + g.def)).slice(0, 8);
+      const cs = CONCEPT_ORDER.filter((k) => conceptOpen(k) && hit(CONCEPTS[k].title + ' ' + CONCEPTS[k].line + ' ' + CONCEPTS[k].ai)).slice(0, 8);
+      if (gl.length || cs.length) {
+        notes = `<div class="search-notes"><h4>개념 노트에서 찾은 것</h4><div class="sn-list">
+          ${cs.map((k) => `<button class="sn" data-go="notes"><b>${esc(CONCEPTS[k].title)}</b><span>${esc(CONCEPTS[k].line)}</span></button>`).join('')}
+          ${gl.map((g) => `<button class="sn" data-go="notes"><b>${esc(g.term)}</b> <span class="muted">${esc(g.en)}</span><span>${esc(g.def)}</span></button>`).join('')}
+        </div></div>`;
+      }
+    }
+    const cnt = $('#searchCount'), clr = $('#searchClear');
+    if (cnt) cnt.textContent = terms.length ? `문제 ${list.length}개 찾음` : '';
+    if (clr) clr.hidden = !terms.length;
+    $('#homeList').innerHTML = notes + (chapters || `<p class="muted empty-search">"${esc(homeQuery)}"에 맞는 문제가 없어요. 다른 낱말이나 아래 태그로 찾아보세요.</p>`);
+    $$('#homeList [data-papers]').forEach((b) => (b.onclick = () => openPapers(+b.dataset.papers)));
+    // 카드 안의 태그를 누르면 그 태그로 찾는다(카드로 들어가지 않게 막는다)
+    $$('#homeList .stag').forEach((t) => (t.onclick = (e) => { e.stopPropagation(); e.preventDefault(); setQuery(t.dataset.q); }));
   }
 
 
@@ -434,7 +490,8 @@
       play.rl = newRl(st, play.rl && play.rl.id === st.id ? play.rl : null);
       editor.setBrain(sim.rlBuild(st, play.rl.state.theta));
     } else if (train) {
-      play.train = { brain: JSON.parse(JSON.stringify(st.init)), epochs: 0, losses: [], rates: new Set(), lrIdx: play.train && play.train.id === st.id ? play.train.lrIdx : 2, auto: false, acc: 0, id: st.id, done: false };
+      const same = play.train && play.train.id === st.id;
+      play.train = { brain: initBrain(st, same ? play.train.initIdx : 0), initIdx: same ? play.train.initIdx || 0 : 0, epochs: 0, losses: [], rates: new Set(), lrIdx: same ? play.train.lrIdx : 2, auto: false, acc: 0, id: st.id, done: false };
       play.train.losses.push(sim.lossOf(st, play.train.brain));
       editor.setBrain(play.train.brain);
     } else if (st.type === 'vision') {
@@ -1181,25 +1238,31 @@
   const curRow = () => curRows()[play.row] || play.cfg.rows[0];
   const CLS_HEX = ['#ffa94d', '#5aa9ff', '#7ee081', '#c3a6ff'], CLS_RGB = ['240,150,70', '90,160,255', '110,210,120', '180,150,250'], CLS_NAME = ['주황', '파랑', '초록', '보라'];
   const meanConf = (res) => res.rows.reduce((a, r) => a + (r.p || 0), 0) / res.rows.length;
+  // 재현율: 진짜 파랑(1) 가운데 뇌가 파랑이라고 맞힌 비율
+  const recallOf = (res, n) => { const pos = res.rows.filter((r) => r.row[n] === 1); return pos.length ? pos.filter((r) => r.ok).length / pos.length : 1; };
   function plotHtml(st, brain) {
     const res = sim.evalLogic(st, brain);
     const okN = res.rows.filter((r) => r.ok).length;
     let accLine = `훈련 데이터 <b>${okN} / ${st.rows.length}</b> 맞음 (${Math.round((okN / st.rows.length) * 100)}%)`;
+    if (st.need && st.need.recall != null) {
+      const pos = res.rows.filter((r) => r.row[st.inputs.length] === 1);
+      accLine += ` · 파랑 찾음 <b>${pos.filter((r) => r.ok).length} / ${pos.length}</b> (재현율 ${Math.round(recallOf(res, st.inputs.length) * 100)}%)`;
+    }
     if (st.classes) accLine = `맞은 점 <b>${okN} / ${st.rows.length}</b> · 정답 색의 확률 평균 <b>${Math.round(meanConf(res) * 100)}%</b>${st.need && st.need.confidence ? ` (목표 ${Math.round(st.need.confidence * 100)}% 이상)` : ''}`;
     if (st.test) {
       if (play.showTest) {
         const t = sim.evalLogic({ rows: st.test, inputs: st.inputs, outputs: st.outputs }, brain);
         const tk = t.rows.filter((r) => r.ok).length;
-        accLine += ` · 시험 데이터 <b>${tk} / ${st.test.length}</b> 맞음 (${Math.round((tk / st.test.length) * 100)}%)`;
-      } else accLine += ' · 시험 데이터는 숨겨져 있어요(채점할 때 씀)';
+        accLine += ` · ${esc(st.testName || '시험 데이터')} <b>${tk} / ${st.test.length}</b> 맞음 (${Math.round((tk / st.test.length) * 100)}%)`;
+      } else accLine += ` · ${esc(st.testName || '시험 데이터')}: 숨김(채점할 때 씀)`;
     }
     return `
       <div class="plot-wrap"><canvas id="plotCanvas" aria-label="점 그래프"></canvas></div>
       <div class="plot-legend">${st.classes
         ? st.outputs.map((o, k) => `<span><i class="pt" style="background:${CLS_HEX[k]}"></i>${CLS_NAME[k]} = 출력 ${k + 1}</span>`).join('') + '<span><i class="pt bad"></i>빨간 테두리 = 틀림</span><span class="muted">배경 = 가장 큰 출력의 색(진할수록 확신이 큼)</span>'
-        : `<span><i class="pt o"></i>주황 = 0</span><span><i class="pt b"></i>파랑 = 1</span><span><i class="pt bad"></i>빨간 테두리 = 틀림</span>${st.test ? '<span><i class="pt sq"></i>네모 = 시험 데이터</span>' : ''}<span class="muted">배경 = 그 자리에서 뇌의 답, 경계선 = 결정 경계</span>`}</div>
+        : `<span><i class="pt o"></i>주황 = 0</span><span><i class="pt b"></i>파랑 = 1</span><span><i class="pt bad"></i>빨간 테두리 = 틀림</span>${st.test ? `<span><i class="pt sq"></i>네모 = ${esc(st.testName || '시험 데이터')}</span>` : ''}<span class="muted">배경 = 그 자리에서 뇌의 답, 경계선 = 결정 경계</span>`}</div>
       <div class="muted plot-acc" id="plotAcc">${accLine}</div>
-      ${st.test ? `<label class="toggle"><input type="checkbox" id="chkTest" ${play.showTest ? 'checked' : ''}> 시험 데이터 보기</label>` : ''}`;
+      ${st.test ? `<label class="toggle"><input type="checkbox" id="chkTest" ${play.showTest ? 'checked' : ''}> ${esc(st.testName || '시험 데이터')} 보기</label>` : ''}`;
   }
   function drawPlot(st, brain) {
     const cv = $('#plotCanvas');
@@ -2018,10 +2081,11 @@
     }
     if (st.type === 'train') {
       play.train.lrIdx = Math.max(0, RATES.indexOf(st.solution.lr));
+      if (st.inits) play.train.initIdx = st.solution.init || 0;
       resetTrain();
       toast(st.goal && st.goal.type === 'epochsAtLeast'
         ? '정답: 학습률 0.1로 자동 학습 → 잠깐 멈추고 1로 바꿔 이어서 → 다시 멈추고 3으로 바꿔 50번을 채우면 별 3개예요'
-        : `정답: 학습률 ${st.solution.lr}로 처음부터 다시 준비했어요. 자동 학습을 눌러 보세요`);
+        : `정답: ${st.inits ? `시작 가중치 "${st.inits[st.solution.init || 0].label}", ` : ''}학습률 ${st.solution.lr}로 처음부터 다시 준비했어요. 자동 학습을 눌러 보세요`);
       return;
     }
     if (st.type === 'vision') {
@@ -2112,13 +2176,15 @@
     if (st.type === 'logic') {
       const unit = st.plot ? '점' : '줄';
       tail = `<div class="lp-actions"><button class="btn primary" id="btnCheck">✓ 채점하기 <kbd>Space</kbd></button>
-        <span class="muted">${st.need && st.need.test ? '목표는 시험 데이터예요. 채점하면 시험 데이터로 잽니다.' : okN === st.rows.length ? `모든 ${unit}이 맞았어요. 채점해 보세요!` : `맞은 ${unit} ${okN} / ${st.rows.length}`}</span></div>`;
+        <span class="muted">${st.need && st.need.recall != null ? '목표는 재현율과 정확도예요. 모두 맞히지 않아도 돼요.' : st.need && st.need.test ? `채점은 "${esc(st.testName || '시험 데이터')}"로 잽니다.` : okN === st.rows.length ? `모든 ${unit}이 맞았어요. 채점해 보세요!` : `맞은 ${unit} ${okN} / ${st.rows.length}`}</span></div>`;
     } else {
       const t = play.train;
       const lr = RATES[t.lrIdx];
       const loss = t.losses[t.losses.length - 1];
       tail = `
         <div class="train-box">
+          ${st.inits ? `<div class="set-row"><span><b>시작 가중치</b> <span class="muted">바꾸면 처음부터 다시 배워요</span></span>
+            <div class="seg" id="initSeg">${st.inits.map((it, i) => `<button data-i="${i}" class="${i === (t.initIdx || 0) ? 'on' : ''}">${esc(it.label)}</button>`).join('')}</div></div>` : ''}
           <label class="set-row"><span><b>학습률</b> <span class="muted">한 번에 얼마나 고칠까</span></span>
             <span style="display:flex;gap:10px;align-items:center"><input type="range" id="lrRange" min="0" max="${RATES.length - 1}" step="1" value="${t.lrIdx}"><b class="wval" id="lrVal">${lr}</b></span></label>
           <div class="lp-actions">
@@ -2155,6 +2221,7 @@
     if (ck) ck.onclick = checkLogic;
     if (st.type === 'train') {
       $('#lrRange').oninput = (e) => { play.train.lrIdx = +e.target.value; $('#lrVal').textContent = RATES[play.train.lrIdx]; };
+      $$('#initSeg button').forEach((b) => (b.onclick = () => { if (+b.dataset.i === play.train.initIdx) return; play.train.initIdx = +b.dataset.i; resetTrain(); toast('시작 가중치를 바꿔서 처음부터 다시 배워요'); }));
       // 자동 학습 중에는 패널이 계속 새로 그려져서 클릭(누름+뗌)이 끊길 수 있다 → 누르는 순간 반응
       $('#btnLearn1').onpointerdown = (e) => { if (e.button === 0) { audio.unlock(); learnOnce(); } };
       $('#btnAuto').onpointerdown = (e) => { if (e.button === 0) { audio.unlock(); toggleAuto(); } };
@@ -2163,11 +2230,24 @@
       drawLossChart();
     }
   }
+  // 입력에서 직접 선을 받는 히든 뉴런 수(= 코드의 칸 수)
+  function codeWidth(st, brain) {
+    const ins = st.inputs || [];
+    return new Set(brain.synapses.filter((x) => ins.includes(x.from) && /^h\d+$/.test(x.to)).map((x) => x.to)).size;
+  }
   function checkLogic() {
     const brain = editor.getBrain();
     const st = play.cfg;
     const res = sim.evalLogic(st, brain);
     if (st.plot) { checkPlot(st, brain, res); return; }
+    const codeN = codeWidth(st, brain), codeBad = st.need && st.need.code != null && codeN > st.need.code;
+    if (codeBad) {
+      audio.sfx.fail();
+      stageResult({ status: 'fail' }, brain, () => `
+        <div><div class="k">맞은 줄</div><div class="v">${res.rows.filter((r) => r.ok).length}/${res.rows.length}</div></div>
+        <div><div class="k">입력을 받는 히든 뉴런</div><div class="v">${codeN}</div></div>`, `코드는 ${st.need.code}칸이어야 해요. 입력은 히든 1에만 이어 주세요(지금 ${codeN}개의 히든 뉴런이 입력을 받아요).`);
+      return;
+    }
     if (res.ok) audio.sfx.success(); else audio.sfx.fail();
     const insN = (play.cfg.inputs || ['inA', 'inB']).map((id) => ({ inA: 'A', inB: 'B', inC: 'C', inD: 'D' })[id]);
     const bad = res.rows.filter((r) => !r.ok).map((r) => insN.map((n, k) => `${n}=${r.row[k]}`).join(', ')).join(' / ');
@@ -2188,15 +2268,21 @@
       renderLogicPanel();
     }
     const confidence = st.classes ? meanConf(res) : null;
-    const ok = st.need && st.need.test ? testAcc >= st.need.test - 1e-9 : res.ok && (!(st.need && st.need.confidence) || confidence >= st.need.confidence - 1e-9);
+    const nIn = st.inputs.length, trainAcc = trainN / st.rows.length;
+    const recall = st.need && st.need.recall != null ? recallOf(res, nIn) : null;
+    const ok = recall != null ? recall >= st.need.recall - 1e-9 && trainAcc >= st.need.acc - 1e-9
+      : st.need && st.need.test ? testAcc >= st.need.test - 1e-9 : res.ok && (!(st.need && st.need.confidence) || confidence >= st.need.confidence - 1e-9);
     if (ok) audio.sfx.success(); else audio.sfx.fail();
+    const testName = st.testName || '시험 데이터';
     stageResult({ status: ok ? 'success' : 'fail', testAcc, confidence }, brain, (isNew) => `
       <div><div class="k">${st.classes ? '맞은 점' : '훈련 데이터'}</div><div class="v">${trainN}/${st.rows.length}</div></div>
       ${st.classes ? `<div><div class="k">정답 확률 평균</div><div class="v">${Math.round(confidence * 100)}%</div></div>` : ''}
-      ${st.test ? `<div><div class="k">시험 데이터</div><div class="v">${testN}/${st.test.length}</div></div>` : ''}
+      ${recall != null ? `<div><div class="k">재현율(파랑 찾음)</div><div class="v">${Math.round(recall * 100)}%</div></div>` : ''}
+      ${st.test ? `<div><div class="k">${esc(testName)}</div><div class="v">${testN}/${st.test.length}</div></div>` : ''}
       <div><div class="k">시냅스</div><div class="v">${brain.synapses.length}${isNew.syn ? '<span class="new-badge">NEW</span>' : ''}</div></div>
       <div><div class="k">히든 뉴런 사용</div><div class="v">${sim.usedHidden(brain)}</div></div>`,
-    st.test ? `시험 데이터 ${testN}/${st.test.length} (${Math.round(testAcc * 100)}%) — 목표는 ${Math.round(st.need.test * 100)}% 이상이에요. 훈련 데이터의 잘못된 점까지 맞히려다 처음 보는 점을 틀린 건 아닐까요?`
+    recall != null ? `정확도 ${Math.round(trainAcc * 100)}% · 재현율 ${Math.round(recall * 100)}% — 목표는 파랑을 모두 찾고(재현율 ${Math.round(st.need.recall * 100)}%) 정확도 ${Math.round(st.need.acc * 100)}% 이상이에요.${recall < 1 ? ' 놓친 파랑이 있어요. 정확도가 높아도 파랑을 놓치면 소용없어요.' : ' 파랑은 다 찾았지만 주황을 너무 많이 파랑이라고 했어요.'}`
+      : st.test ? `${testName} ${testN}/${st.test.length} (${Math.round(testAcc * 100)}%) — 목표는 ${Math.round(st.need.test * 100)}% 이상이에요. ${st.testFail || '훈련 데이터의 잘못된 점까지 맞히려다 처음 보는 점을 틀린 건 아닐까요?'}`
       : res.ok && st.need && st.need.confidence ? `모두 맞혔지만 정답 확률 평균이 ${Math.round(confidence * 100)}%예요. 목표는 ${Math.round(st.need.confidence * 100)}% 이상이에요. 같은 경계에서 가중치를 키워 보세요.` : `틀린 점 ${st.rows.length - trainN}개`);
   }
   function learnOnce() {
@@ -2231,9 +2317,11 @@
     t.acc = 0;
     renderLogicPanel();
   }
+  // 학습 실험의 처음 뇌. 시작 가중치를 고를 수 있는 실험(inits)은 고른 것을 쓴다
+  function initBrain(st, idx) { return JSON.parse(JSON.stringify(st.inits ? st.inits[idx || 0].brain : st.init)); }
   function resetTrain() {
-    const st = play.cfg, keep = play.train ? play.train.lrIdx : 2, sp = play.train ? play.train.speedIdx || 0 : 0;
-    play.train = { brain: JSON.parse(JSON.stringify(st.init)), epochs: 0, losses: [], rates: new Set(), lrIdx: keep, speedIdx: sp, auto: false, acc: 0, id: st.id, done: false };
+    const st = play.cfg, keep = play.train ? play.train.lrIdx : 2, sp = play.train ? play.train.speedIdx || 0 : 0, ii = play.train ? play.train.initIdx || 0 : 0;
+    play.train = { brain: initBrain(st, ii), initIdx: ii, epochs: 0, losses: [], rates: new Set(), lrIdx: keep, speedIdx: sp, auto: false, acc: 0, id: st.id, done: false };
     play.train.losses.push(sim.lossOf(st, play.train.brain));
     editor.setBrain(play.train.brain, true);
     renderLogicPanel();

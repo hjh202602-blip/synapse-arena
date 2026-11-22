@@ -1410,6 +1410,210 @@
     },
   });
 
+  // ===================================================================
+  // 도전 문제(심화): 기존 장의 끝에 붙는 더 어려운 문제. 건너뛰어도 다음 장이 열린다(extra)
+  // ===================================================================
+  const ROWS4 = (f) => Array.from({ length: 16 }, (_, n) => { const a = (n >> 3) & 1, b = (n >> 2) & 1, c = (n >> 1) & 1, d = n & 1; return [a, b, c, d].concat(f(a, b, c, d)); });
+  IMG.P = ['..#...', '..#...', '######', '..#...', '..#...', '..#...'];
+  const CH_LOGIC = Object.assign({}, LOGIC_BASE, {
+    id: 'L6', title: '셋 다 같을 때', concept: 'allsame', extra: true, funcs: FUNCS_BASIC,
+    inputs: ['inA', 'inB', 'inC'], sensors: ['inA', 'inB', 'inC', 'bias'],
+    brief: '도전 문제. A, B, C 세 입력이 모두 같을 때(셋 다 꺼짐 또는 셋 다 켜짐)만 출력을 켜자. 히든 뉴런 둘에게 "셋 다 켜짐"과 "셋 다 꺼짐"을 하나씩 맡기고 출력에서 합친다. 이번에는 문턱을 직접 계산해야 한다.',
+    goalText: 'A = B = C일 때만 출력 1',
+    rows: ROWS3((a, b, c) => [a === b && b === c ? 1 : 0]),
+    hints: ['"모두 같다" = "셋 다 켜짐" 또는 "셋 다 꺼짐". 히든 1은 셋 다 켜졌을 때만, 히든 2는 셋 다 꺼졌을 때만 켜지게 하자.',
+      '값 조절: 히든 1 = A + B + C + 상시 × (-2). 셋이 켜지면 1, 둘이면 0이다. 상시가 -1이면 둘만 켜져도 켜져 버린다. 히든 2 = 상시 +1, A·B·C 각각 -1(하나라도 켜지면 0 이하). 출력 = 히든 1 + 히든 2.',
+      'A·B·C → 히든 1 +1, 상시 → 히든 1 -2 / 상시 → 히든 2 +1, A·B·C → 히든 2 -1 / 히든 1·2 → 출력 +1.'],
+    solution: B('inA>h1:1', 'inB>h1:1', 'inC>h1:1', 'bias>h1:-2', 'bias>h2:1', 'inA>h2:-1', 'inB>h2:-1', 'inC>h2:-1', 'h1>out:1', 'h2>out:1'),
+    stars: [{ type: 'synapses', max: 10 }, { type: 'hidden', min: 2 }],
+  });
+  const CH_PUZZLE = Object.assign({}, PUZZLE_BASE, {
+    id: 'P7', title: '두 수 비교하기', concept: 'comparator', extra: true, funcs: FUNCS_BASIC,
+    inputs: ['inA', 'inB', 'inC', 'inD'], sensors: ['inA', 'inB', 'inC', 'inD', 'bias'],
+    brief: '도전 문제. 두 자리 이진수 두 개를 비교한다. 첫 수는 A(2의 자리)와 B(1의 자리), 둘째 수는 C(2의 자리)와 D(1의 자리)다. 첫 수가 둘째 수보다 클 때만 출력을 켜자. 경우가 16가지나 되지만, 잘 생각하면 히든 뉴런 없이 뉴런 하나로 풀린다.',
+    goalText: 'AB(이진수) > CD(이진수)일 때만 출력 1',
+    rows: ROWS4((a, b, c, d) => [2 * a + b > 2 * c + d ? 1 : 0]),
+    hints: ['이진수 AB의 값은 2 × A + B다. "첫 수 - 둘째 수"를 뉴런 하나로 계산할 수 있을까?',
+      '값 조절: 출력 = 2A + B - 2C - D로 두면, 첫 수가 크면 1 이상, 같거나 작으면 0 이하가 된다. 자리의 값(2와 1)을 가중치로 쓰는 것이 핵심이다. 2의 자리에도 1을 주면 01과 10이 같은 값이 되어 틀린다.',
+      'A → 출력 +2, B → 출력 +1, C → 출력 -2, D → 출력 -1.'],
+    solution: B('inA>out:2', 'inB>out:1', 'inC>out:-2', 'inD>out:-1'),
+    stars: [{ type: 'synapses', max: 4 }, { type: 'noHidden' }],
+  });
+  const CH_PLOT = Object.assign({}, PLOT_BASE, {
+    id: 'C7', title: '네 칸 체크무늬', concept: 'deep', extra: true, funcs: FUNCS_ACT, maxHidden: 3, fixedHidden: 3,
+    brief: '도전 문제. 파랑은 왼쪽 위와 오른쪽 아래, 주황은 왼쪽 아래와 오른쪽 위에 있다. 평면 위의 XOR이다. 선 두 개를 긋는 것만으로는 안 되고, 선 두 개의 결과를 한 번 더 조합해야 한다. 히든 뉴런이 다른 히든 뉴런에게 신호를 보내는 "두 층"을 만들어 보자.',
+    goalText: '모든 점을 맞게 나누기',
+    rows: points('C7', 24, (x, y) => { if (Math.abs(x - 0.5) < 0.1 || Math.abs(y - 0.5) < 0.1) return null; return (x > 0.5) !== (y > 0.5) ? 1 : 0; }),
+    hints: ['히든 1 = "x가 가운데보다 오른쪽", 히든 2 = "y가 가운데보다 위쪽"으로 만들자. 파랑은 둘 중 하나만 맞을 때다. 1장의 XOR을 히든 뉴런 위에서 한 번 더 하면 된다.',
+      '값 조절: 히든 1·2의 함수를 "계단"으로 바꾸고 x(또는 y) +3, 상시 -1로 두면 0.5를 넘을 때 1이 된다. 히든 3 = 히든 1 + 히든 2 - 1(둘 다 맞을 때만 1, AND). 출력 = 히든 1 + 히든 2 - 2 × 히든 3.',
+      '히든 1(계단): x +3, 상시 -1 / 히든 2(계단): y +3, 상시 -1 / 히든 3: 히든 1 +1, 히든 2 +1, 상시 -1 / 출력: 히든 1 +1, 히든 2 +1, 히든 3 -2.'],
+    solution: withFn(B('inX>h1:3', 'bias>h1:-1', 'inY>h2:3', 'bias>h2:-1', 'h1>h3:1', 'h2>h3:1', 'bias>h3:-1', 'h1>out:1', 'h2>out:1', 'h3>out:-2'), { h1: 'step', h2: 'step' }),
+    stars: [{ type: 'synapses', max: 10 }, { type: 'hidden', min: 3 }],
+  });
+  const CH_VISION = Object.assign({}, VISION_BASE, {
+    id: 'V5', title: '교차점 찾기', concept: 'crosspoint', extra: true, mode: 'map',
+    brief: '도전 문제. 이번에는 세로줄과 가로줄이 만나는 "교차점"에서만 특징 맵이 켜지게 하자. 줄 위의 다른 자리에서는 꺼져야 한다. 줄 위의 자리와 교차점은 필터에 겹치는 칸 수가 몇 개씩 다를까?',
+    goalText: '모든 그림에서 특징 맵이 목표와 같게',
+    images: [IMG.X1, IMG.X2, IMG.P, IMG.V1, IMG.H2], reference: { filters: [filt([0, 1, 0, 1, 1, 1, 0, 1, 0], -4)] },
+    hints: ['필터를 "+" 모양(가운데와 위·아래·왼쪽·오른쪽)으로 칠해 보자. 교차점에서는 몇 칸이 겹치고, 그냥 줄 위에서는 몇 칸이 겹칠까?',
+      '값 조절: + 모양 필터는 교차점에서 5칸, 줄 위에서 3칸이 겹친다. 합이 5일 때만 켜지려면 편향 -4(5 - 4 = 1, 3 - 4 = 음수). 편향 -3이면 4칸 겹치는 자리가 없어서 그것도 된다. -2 이상이면 줄 위에서도 켜진다.',
+      '필터 가운데 세로 세 칸과 가로 세 칸 +1(모두 5칸), 편향 -4.'],
+    solution: { filters: [filt([0, 1, 0, 1, 1, 1, 0, 1, 0], -4)] },
+    stars: [{ type: 'cells', max: 5 }, { type: 'unitFilter' }],
+  });
+  const changed = (x) => x.map((v, i) => (v !== (i ? x[i - 1] : 0) ? 1 : 0));
+  const CH_SEQ = Object.assign({}, SEQ_BASE, {
+    id: 'M6', title: '바뀌는 순간', concept: 'change', extra: true,
+    sensors: ['inA', 'mem1', 'bias'], maxHidden: 3, fixedHidden: 3,
+    brief: '도전 문제. 입력이 바로 전 칸과 달라진 순간(0 → 1이든 1 → 0이든)에만 출력을 켜자. 처음 칸은 "0이었다가"로 본다. 지금 입력과 바로 전 입력을 둘 다 알아야 하고, 둘이 다른지 판단하는 XOR도 필요하다.',
+    goalText: '입력이 바뀐 칸에서만 출력 1',
+    seqs: seqs([[1, 1, 0, 0, 1, 0, 1, 1], [0, 0, 1, 1, 1, 0, 0, 1], [1, 0, 1, 0, 0, 0, 1, 1]], changed),
+    hints: ['히든 1에 지금 입력을 담아 두면 다음 칸에 기억 1(= 바로 전 입력)로 돌아온다. 그다음은 "지금 입력 XOR 기억 1"이다.',
+      '값 조절: 히든 1 = 입력 A(+1, 기억용). 히든 2 = 입력 A +1, 기억 1 -1("지금만 1"). 히든 3 = 기억 1 +1, 입력 A -1("전에만 1"). 출력 = 히든 2 + 히든 3.',
+      '입력 A → 히든 1 +1 / 입력 A → 히든 2 +1, 기억 1 → 히든 2 -1 / 기억 1 → 히든 3 +1, 입력 A → 히든 3 -1 / 히든 2·3 → 출력 +1.'],
+    solution: B('inA>h1:1', 'inA>h2:1', 'mem1>h2:-1', 'mem1>h3:1', 'inA>h3:-1', 'h2>out:1', 'h3>out:1'),
+    stars: [{ type: 'synapses', max: 7 }, { type: 'unitWeights' }],
+  });
+  const CH_AE = Object.assign({}, AE_BASE, {
+    id: 'A5', title: '셋을 한 칸에', concept: 'valuecode', extra: true,
+    inputs: ['inA', 'inB', 'inC'], outputs: ['out', 'out2', 'out3'], sensors: ['inA', 'inB', 'inC', 'bias'], maxHidden: 2, fixedHidden: 2,
+    need: { code: 1 },
+    brief: '도전 문제. 입력 셋(A, B, C) 중 하나만 켜진다. 이번에는 코드가 딱 한 칸이다. 입력을 받는 히든 뉴런은 히든 1 하나뿐이어야 한다(히든 2는 히든 1만 보고 디코더를 돕는다). 0과 1만으로는 셋을 못 나눈다. 코드의 "크기"로 세 가지를 담아 보자.',
+    goalText: '코드 한 칸(히든 1)을 거쳐 세 입력을 모두 살리기',
+    rows: [[1, 0, 0, 1, 0, 0], [0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1]], rowLabels: ['A', 'B', 'C'],
+    hints: ['코드 = A면 0, B면 0.5, C면 1로 정하자. 디코더는 "작다 / 가운데 / 크다"를 가려야 한다.',
+      '값 조절: 인코더 = B → 히든 1 +0.5, C → 히든 1 +1. 출력 1(A) = 상시 +1, 히든 1 -2(코드가 0일 때만 1). 히든 2 = 히든 1 × 2, 상시 -1(코드가 1일 때만 1). 출력 3(C) = 히든 2 +1. 출력 2(B) = 히든 1 +2, 히든 2 -2(가운데일 때만 1).',
+      'B → 히든 1 +0.5, C → 히든 1 +1 / 히든 1 → 히든 2 +2, 상시 → 히든 2 -1 / 상시 → 출력 +1, 히든 1 → 출력 -2 / 히든 1 → 출력 2 +2, 히든 2 → 출력 2 -2 / 히든 2 → 출력 3 +1.'],
+    solution: B('inB>h1:0.5', 'inC>h1:1', 'h1>h2:2', 'bias>h2:-1', 'bias>out:1', 'h1>out:-2', 'h1>out2:2', 'h2>out2:-2', 'h2>out3:1'),
+    stars: [{ type: 'synapses', max: 12 }, { type: 'synapses', max: 9 }],
+  });
+
+  // ===================================================================
+  // 15장 AI가 겪는 문제 (심화): 문제가 생기는 까닭과 해결책
+  // ===================================================================
+  // 한쪽 색만 뽑는 점 생성기(불균형 데이터용)
+  function pointsOne(seed, n, keep, label) {
+    const r = SA.sim.makeRng(seed), out = [];
+    for (let guard = 0; out.length < n && guard < 20000; guard++) {
+      const x = Math.round((0.05 + 0.9 * r()) * 100) / 100, y = Math.round((0.05 + 0.9 * r()) * 100) / 100;
+      if (keep(x, y)) out.push([x, y, label]);
+    }
+    return out;
+  }
+  const shove = (rows, d) => rows.map(([x, y, l]) => [Math.round((l ? x - d : x + d) * 100) / 100, y, l]);
+  const ROBUST_ROWS = points('F3', 18, (x) => (x >= 0.12 && x <= 0.35 ? 0 : x >= 0.65 && x <= 0.88 ? 1 : null));
+  const SYM_INIT = { hidden: [{ id: 'h1', x: 0.5, y: 0.3 }, { id: 'h2', x: 0.5, y: 0.7 }], synapses: [
+    { from: 'inA', to: 'h1', w: 0.5 }, { from: 'inB', to: 'h1', w: 0.5 }, { from: 'bias', to: 'h1', w: 0 },
+    { from: 'inA', to: 'h2', w: 0.5 }, { from: 'inB', to: 'h2', w: 0.5 }, { from: 'bias', to: 'h2', w: 0 },
+    { from: 'h1', to: 'out', w: 0.5 }, { from: 'h2', to: 'out', w: 0.5 }, { from: 'bias', to: 'out', w: 0 }] };
+  const PROBLEMS = [
+    Object.assign({}, PLOT_BASE, {
+      id: 'F1', title: '정확도의 함정', concept: 'imbalance', funcs: FUNCS_ACT, maxHidden: 0, fixedHidden: 0,
+      need: { recall: 1, acc: 0.9 },
+      brief: '병을 찾는 AI를 생각해 보자. 주황은 건강한 사람, 파랑은 병이 있는 사람이다. 파랑은 25명 중 3명뿐이다. 아무것도 잇지 않은 뇌는 모두 "건강함(주황)"이라고 답하는데, 그래도 정확도가 88%나 된다. 하지만 환자는 한 명도 못 찾는다. 이번 목표는 파랑을 하나도 빠짐없이 찾으면서(재현율 100%) 정확도 90% 이상이다.',
+      goalText: '파랑을 모두 찾기(재현율 100%) + 정확도 90% 이상',
+      rows: pointsOne('F1', 20, (x) => x < 0.72, 0).concat([[0.84, 0.82, 0], [0.9, 0.12, 0], [0.82, 0.32, 1], [0.92, 0.66, 1], [0.87, 0.5, 1]]),
+      hints: ['먼저 아무것도 잇지 말고 채점해 보자. 정확도는 높지만 파랑을 하나도 못 찾는다. 데이터가 한쪽으로 쏠려 있으면(불균형) 정확도만으로는 실력을 알 수 없다.',
+        '값 조절: 파랑은 모두 x가 0.8보다 오른쪽에 있다. 경계를 x = 0.78쯤에 세우면 파랑 셋을 다 잡고, 주황 둘을 파랑이라고 잘못 부른다. 그래도 25개 중 23개가 맞아 92%다. 환자를 놓치는 것보다 건강한 사람을 한 번 더 검사하는 편이 낫다.',
+        'x 좌표 → 출력 +2, 상시 → 출력 -1.05.'],
+      solution: B('inX>out:2', 'bias>out:-1.05'),
+      stars: [{ type: 'synapses', max: 2 }, { type: 'noHidden' }],
+    }),
+    Object.assign({}, PLOT_BASE, {
+      id: 'F2', title: '지름길 학습', concept: 'shortcut', funcs: FUNCS_ACT, maxHidden: 0, fixedHidden: 0,
+      need: { test: 0.9 },
+      brief: '늑대(파랑)와 강아지(주황) 사진을 나누는 AI다. x는 "생김새가 늑대 같은 정도", y는 "배경이 눈밭인 정도"다. 그런데 훈련 사진 속 늑대는 모두 눈밭에, 강아지는 모두 풀밭에 있었다. 그래서 눈밭만 보고 늑대라고 해도 훈련 데이터는 다 맞는다. 시험 데이터에는 풀밭의 늑대와 눈밭의 강아지도 있다. 목표는 시험 데이터 90% 이상이다.',
+      goalText: '시험 데이터 90% 이상 맞히기',
+      rows: points('F2', 18, (x, y) => (x > 0.62 && y > 0.62 ? 1 : x < 0.38 && y < 0.38 ? 0 : null)),
+      test: points('F2-test', 20, (x) => (x > 0.62 ? 1 : x < 0.38 ? 0 : null)),
+      testName: '시험 데이터', testFail: '훈련 데이터에서만 통하는 지름길(배경)을 배운 건 아닐까요? 무엇이 진짜로 늑대를 정하는지 생각해 보세요.',
+      hints: ['훈련 데이터에서는 x와 y가 함께 움직여서, 어느 쪽을 써도 다 맞는다. 하지만 진짜로 늑대를 정하는 것은 생김새(x)다. 배경(y)은 우연히 함께 나타났을 뿐이다.',
+        '값 조절: y를 쓰는 경계(y 좌표 → 출력)나 x + y 대각선은 훈련 데이터를 다 맞히지만, 풀밭의 늑대·눈밭의 강아지를 틀린다. x만 쓰는 세로 경계가 시험 데이터를 다 맞힌다. 경계는 "x × 가중치 + 편향 = 0.5"인 곳이다.',
+        'x 좌표 → 출력 +2, 상시 → 출력 -0.5. y는 잇지 않는다.'],
+      solution: B('inX>out:2', 'bias>out:-0.5'),
+      stars: [{ type: 'synapses', max: 2 }, { type: 'noHidden' }],
+    }),
+    Object.assign({}, PLOT_BASE, {
+      id: 'F3', title: '살짝 밀어도', concept: 'robust', funcs: FUNCS_ACT, maxHidden: 0, fixedHidden: 0,
+      need: { test: 1 },
+      brief: '적대적 예제는 입력을 사람이 못 알아챌 만큼 살짝 바꿔서 AI를 속인다. 이번 시험 데이터는 훈련 점들을 상대편 쪽으로 0.12씩 밀어 놓은 "속이려고 민 점"이다. 훈련 데이터만 맞히는 경계는 많지만, 민 점까지 모두 버티는 경계는 두 무리 한가운데에 선 것뿐이다. 민 점 100%를 버티게 하자.',
+      goalText: '살짝 민 점(시험 데이터)까지 100% 맞히기',
+      rows: ROBUST_ROWS,
+      test: shove(ROBUST_ROWS, 0.12),
+      testName: '살짝 민 점', testFail: '경계가 한쪽 무리에 너무 붙어 있지 않나요? 두 무리 사이의 빈 곳 한가운데에 경계를 세워 보세요.',
+      hints: ['"시험 데이터 보기"를 켜서 민 점들이 어디에 있는지 보자. 주황은 오른쪽으로, 파랑은 왼쪽으로 밀렸다.',
+        '값 조절: 주황은 x 0.35까지, 파랑은 0.65부터 있다. 0.12씩 밀면 주황은 0.47까지, 파랑은 0.53부터 온다. 경계를 0.47과 0.53 사이, 곧 두 무리 한가운데(x = 0.5)에 세워야 한다. 가중치 2, 편향 -0.5면 경계가 x = 0.5다. 편향 -0.3(경계 0.4)은 훈련 데이터는 다 맞히지만 민 주황에 속는다.',
+        'x 좌표 → 출력 +2, 상시 → 출력 -0.5.'],
+      solution: B('inX>out:2', 'bias>out:-0.5'),
+      stars: [{ type: 'synapses', max: 2 }, { type: 'noHidden' }],
+    }),
+    Object.assign({}, TRAIN_BASE, {
+      id: 'F4', title: '모두 같은 출발', concept: 'symmetry', boss: true,
+      brief: '4장의 역전파 실험과 같은 XOR이지만, 이번에는 시작 가중치를 고를 수 있다. "모두 같게"는 두 히든 뉴런이 똑같은 가중치로 시작한다. 두 뉴런은 똑같이 계산하고 똑같이 고쳐져서 영원히 쌍둥이로 남는다. 그러면 뉴런이 하나인 것과 같다. 어떤 학습률로도 못 배우는지 확인하고, 해결해 보자.',
+      goalText: '히든 뉴런과 함께 XOR을 배우게 하기',
+      rows: [[0, 0, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0]],
+      inits: [{ label: '모두 같게', brain: SYM_INIT }, { label: '조금씩 다르게', brain: TRAIN[3].init }],
+      init: SYM_INIT,
+      hints: ['먼저 "모두 같게"로 자동 학습을 돌려 보자. 히든 1과 히든 2의 가중치가 언제나 똑같이 바뀌는 것을 왼쪽 뇌에서 볼 수 있다.',
+        '값 조절: "모두 같게"는 어떤 학습률로도 못 배운다. 시작 가중치를 "조금씩 다르게"로 바꾸면 두 뉴런이 서로 다른 일을 맡게 되어 학습률 0.1이면 3번, 0.5면 2번 만에 배운다. 실제 신경망도 가중치를 작은 무작위 값으로 시작한다.',
+        '시작 가중치를 "조금씩 다르게"로, 학습률 0.1로 자동 학습.'],
+      solution: { lr: 0.1, init: 1 },
+      stars: [{ type: 'epochs', max: 20 }, { type: 'epochs', max: 3 }],
+    }),
+  ];
+
+  Object.assign(CONCEPTS, {
+    allsame: {
+      title: '문턱 계산', line: '몇 개가 켜져야 넘을까를 숫자로.',
+      brain: '뉴런은 들어온 신호가 문턱을 넘어야 발화한다. 같은 입력이라도 문턱이 높으면 "모두 켜졌을 때만", 낮으면 "하나라도 켜졌을 때" 반응한다.',
+      ai: '입력이 n개일 때 "모두 켜짐"은 문턱을 n - 1과 n 사이에, "모두 꺼짐"은 0과 1 사이에 둔다. 맥컬록과 피츠(1943)의 뉴런도 켜진 입력 수를 문턱(threshold)과 비교하는 소자였다. 문턱 하나로 AND·OR·다수결이 모두 만들어진다.',
+    },
+    comparator: {
+      title: '자리의 값', line: '가중치가 곧 자리의 무게.',
+      brain: '뇌는 수를 이진수로 다루지 않지만, 여러 신호에 서로 다른 무게를 주어 하나로 합치는 일은 뉴런의 기본이다.',
+      ai: '이진수 AB의 값은 2A + B다. 가중치에 자리의 값을 주면 뉴런 하나가 두 수의 차를 계산하고, 문턱이 "더 큰가"를 판단한다. 이렇게 직선(평면) 하나로 나뉘는 문제를 "선형 분리 가능"하다고 한다. 섀넌(1938)은 이런 비교·덧셈을 스위치 회로로 설계하는 법을 보였다("symbolic analysis").',
+    },
+    deep: {
+      title: '층을 쌓는 까닭', line: '선을 긋고, 그 결과를 다시 조합한다.',
+      brain: '시각 피질은 단순한 선을 보는 뉴런 위에, 그 조합을 보는 뉴런이 층층이 쌓여 있다. 층을 지날수록 더 복잡한 모양을 알아본다.',
+      ai: '첫 층의 히든 뉴런은 직선을 하나씩 긋고, 다음 층은 그 결과를 AND·XOR처럼 조합한다. 층이 깊을수록 같은 뉴런 수로 더 복잡한 모양을 만든다. 루멜하트, 힌턴, 윌리엄스(1986)는 여러 층의 "히든 유닛(hidden units)"이 역전파로 이런 조합을 스스로 배운다는 것을 보였다.',
+    },
+    crosspoint: {
+      title: '특징의 조합', line: '선과 선이 만나는 곳은 또 하나의 특징.',
+      brain: '휴벨과 비셀 이후의 연구에서, 시각 피질에는 선의 끝이나 모서리처럼 선 여러 개의 조합에 반응하는 뉴런도 있다는 것이 알려졌다.',
+      ai: '+ 모양 필터는 세로줄과 가로줄이 함께 있을 때 가장 크게 반응한다. 편향을 높이면 "조합이 모두 있을 때만" 켜진다. 후쿠시마(1980)의 네오코그니트론도 앞 층의 특징을 모아 더 복잡한 특징을 찾는 "S세포(S-cell)" 층을 거듭 쌓았다.',
+    },
+    change: {
+      title: '변화 감지', line: '값이 아니라 달라짐에 반응한다.',
+      brain: '감각 뉴런의 많은 수는 자극이 계속될 때보다 자극이 바뀔 때 크게 반응한다(적응). 그래서 가만히 있는 것보다 움직이는 것이 눈에 잘 띈다.',
+      ai: '"지금 입력 XOR 바로 전 입력"은 변화가 있을 때만 1이다. 기억 하나로 바로 전 값을 들고 있으면 된다. 엘먼(1990)의 순환망도 되돌아온 값을 담는 "문맥 유닛(context units)"으로 시간에 따른 변화를 다뤘다.',
+    },
+    valuecode: {
+      title: '크기로 담는 코드', line: '한 칸에도 여러 값을 담을 수 있다.',
+      brain: '뉴런은 켜짐·꺼짐만이 아니라 얼마나 자주 발화하는지(발화율)로도 정보를 나타낸다.',
+      ai: '코드 한 칸이 0과 1만 쓰면 두 가지밖에 못 담지만, 0·0.5·1처럼 크기를 쓰면 셋 이상을 담는다. 대신 디코더가 "가운데" 같은 값을 가려내야 해서 더 복잡해진다. 힌턴과 살라쿠트디노프(2006)의 오토인코더도 실수 값의 작은 "코드(code)"로 데이터를 줄였다.',
+    },
+    imbalance: {
+      title: '불균형 데이터와 재현율', line: '정확도 88%인데 환자를 하나도 못 찾는다.',
+      brain: '드문 일일수록 놓치기 쉽다. 사람도 거의 일어나지 않는 일은 "설마"하고 지나치는 경향이 있다.',
+      ai: '한쪽 종류가 아주 적은 데이터를 불균형 데이터라고 한다. 이때는 정확도 대신 "진짜 파랑 중 몇 개를 찾았나(재현율, recall)"와 "파랑이라고 한 것 중 몇 개가 맞았나(정밀도, precision)"를 함께 본다. 해결책은 적은 쪽을 더 많이 뽑거나(재표집), 놓쳤을 때 벌점을 더 크게 주거나, 경계를 옮기는 것이다. 허와 가르시아(2009)는 이것을 "불균형 데이터 학습(learning from imbalanced data)"으로 정리했다.',
+    },
+    shortcut: {
+      title: '지름길 학습', line: '눈밭을 보고 늑대라고 답하는 AI.',
+      brain: '사람도 우연히 함께 나타난 것을 원인으로 착각한다(미신, 고정관념). 예가 적을수록 이런 착각이 생기기 쉽다.',
+      ai: '훈련 데이터에서만 우연히 통하는 단서(배경, 워터마크)를 배우는 것을 "지름길 학습(shortcut learning)"이라고 한다(가이로스 외 2020). 리베이로 외(2016)는 늑대와 허스키를 나누던 모델이 사실은 눈 배경을 보고 있었다는 것을 설명 기법으로 밝혔다. 해결책은 단서가 섞이지 않은 다양한 데이터를 모으고, 모델이 무엇을 보고 답하는지 확인하는 것이다.',
+    },
+    robust: {
+      title: '견고함과 여유', line: '경계에서 멀리 떨어질수록 잘 안 속는다.',
+      brain: '사람의 판단도 경계선 근처의 애매한 것에서 가장 잘 흔들린다. 확실한 것은 조금 바뀌어도 그대로 알아본다.',
+      ai: '경계와 가장 가까운 점 사이의 거리를 "마진(margin)"이라고 한다. 코르테스와 바프닉(1995)의 서포트 벡터 머신은 마진이 가장 큰 경계를 고른다. 마드리 외(2017)는 일부러 민 적대적 예제로 학습시키는 "적대적 학습"으로 신경망을 더 견고(robust)하게 만들었다.',
+    },
+    symmetry: {
+      title: '대칭 깨기와 초기화', line: '똑같이 출발하면 영원히 똑같다.',
+      brain: '실제 뇌의 시냅스는 처음부터 세기가 제각각이다. 이 작은 차이가 서로 다른 뉴런이 서로 다른 일을 맡게 하는 출발점이 된다.',
+      ai: '히든 뉴런들이 똑같은 가중치로 시작하면 역전파가 주는 고칠 양도 똑같아서, 몇 번을 배워도 쌍둥이로 남는다. 그래서 가중치를 작은 무작위 값으로 시작해 대칭을 깬다. 루멜하트, 힌턴, 윌리엄스(1986)도 작은 무작위 가중치로 시작했고, 글로로와 벤지오(2010)는 층의 크기에 맞춰 무작위 값의 크기를 정하는 초기화를 제안했다("normalized initialization").',
+    },
+  });
   // 0장 튜토리얼: 진리표 실험 형식으로 모든 조작을 하나씩 따라 해 본다(투어는 app.js)
   const TUTORIAL = Object.assign({}, LOGIC_BASE, {
     id: 'tut', no: '0-1', chapter: 0, title: '튜토리얼', concept: 'neuron', tour: 'basic', funcs: FUNCS_BASIC,
@@ -1424,28 +1628,47 @@
   // 한 갈래로 합치고, 장마다 분류 태그(AI 개념 / 사고력)를 붙인다. 잠금과 이전·다음은 이 순서 그대로 이어진다.
   const ORDER = [
     { list: [TUTORIAL], no: 0, tag: 'AI 개념' },
-    { list: LOGIC, no: 1, tag: 'AI 개념' },
-    { list: PUZZLES, no: 2, tag: '사고력' },
+    { list: LOGIC.concat([CH_LOGIC]), no: 1, tag: 'AI 개념' },
+    { list: PUZZLES.concat([CH_PUZZLE]), no: 2, tag: '사고력' },
     { list: ARENA, no: 3, tag: '사고력' },
     { list: TRAIN, no: 4, tag: 'AI 개념' },
     { list: REWARDS, no: 5, tag: 'AI 개념' },
-    { list: CLASSIFY.concat([CLASSIFY_TRAIN]), no: 6, tag: 'AI 개념' },
-    { list: VISION, no: 7, tag: 'AI 개념' },
-    { list: MEMORY, no: 8, tag: 'AI 개념' },
+    { list: CLASSIFY.concat([CLASSIFY_TRAIN, CH_PLOT]), no: 6, tag: 'AI 개념' },
+    { list: VISION.concat([CH_VISION]), no: 7, tag: 'AI 개념' },
+    { list: MEMORY.concat([CH_SEQ]), no: 8, tag: 'AI 개념' },
     { list: CLUSTER, no: 9, tag: 'AI 개념' },
-    { list: COMPRESS.concat([COMPRESS_TRAIN]), no: 10, tag: 'AI 개념' },
+    { list: COMPRESS.concat([COMPRESS_TRAIN, CH_AE]), no: 10, tag: 'AI 개념' },
     { list: DESCENT, no: 11, tag: '심화' },
     { list: VALUE, no: 12, tag: '심화' },
     { list: PROB.concat([PROB_TRAIN]), no: 13, tag: '심화' },
     { list: GATES, no: 14, tag: '심화' },
+    { list: PROBLEMS, no: 15, tag: '심화' },
   ];
   const STAGES = [];
   for (const g of ORDER) g.list.forEach((st, k) => {
-    Object.assign(st, { track: 'ai', chapter: g.no, tag: g.tag, no: g.no + '-' + (k + 1) });
+    // 도전 문제(extra)는 장의 분류와 상관없이 "심화"로 묶는다
+    Object.assign(st, { track: 'ai', chapter: g.no, tag: st.extra ? '심화' : g.tag, no: g.no + '-' + (k + 1) });
     st.code = st.no;
     STAGES.push(st);
   });
   const TAGS = ['AI 개념', '사고력', '심화'];
+  // 문제마다 붙는 태그: 난이도 + 장의 주제 + 실험 하나하나의 주제. 홈의 검색과 태그 누르기에 쓴다.
+  const CH_TOPICS = {
+    0: ['조작법'], 1: ['퍼셉트론', '논리 게이트'], 2: ['논리 회로', '퍼즐'], 3: ['생명체', '감각과 바퀴'], 4: ['학습', '역전파'],
+    5: ['강화학습', '보상'], 6: ['분류', '결정 경계'], 7: ['CNN', '필터'], 8: ['RNN', '기억'], 9: ['비지도 학습', '군집화'],
+    10: ['오토인코더', '압축'], 11: ['최적화', '경사 하강'], 12: ['강화학습', '가치'], 13: ['분류', '확률'], 14: ['LSTM', '게이트'],
+    15: ['AI의 문제', '해결책'],
+  };
+  const STAGE_TOPICS = {
+    C5: ['과적합'], C6: ['학습'], A4: ['학습'], T3: ['한계'], R4: ['보상 해킹'], s7: ['적대적 예제'], D3: ['지역 최소'], K3: ['지역 최소'],
+    Q4: ['탐험'], SM4: ['교차 엔트로피'], F1: ['불균형 데이터'], F2: ['편향된 데이터'], F3: ['적대적 예제'], F4: ['초기화'],
+  };
+  for (const st of STAGES) {
+    const level = st.extra ? '도전 문제' : st.chapter >= 11 ? '심화' : st.chapter === 0 ? '처음' : '기초';
+    const t = [level].concat(st.boss ? ['마무리'] : [], CH_TOPICS[st.chapter] || [], STAGE_TOPICS[st.id] || []);
+    st.tags = [...new Set(t)];
+  }
+  const STAGE_TAGS = [...new Set(STAGES.flatMap((st) => st.tags))];
   const TRACKS = [
     {
       id: 'ai', title: 'AI 배우기', route: 'home',
@@ -1466,6 +1689,7 @@
         { no: 12, title: '가치를 배우는 뇌', tag: '심화', base: 5, desc: '5장 심화 · 가치 기반 강화학습. 칸마다 "앞으로 받을 점수"를 적는 가치 함수와 벨만 방정식, 할인율 γ, 지도 없이 배우는 Q러닝, 작은 보상의 함정과 탐험.' },
         { no: 13, title: '확률로 답하는 뇌', tag: '심화', base: 6, desc: '6장 심화 · 여러 갈래 분류. 소프트맥스로 출력을 확률로 읽고, 가중치로 확신을 키우고, 네 갈래를 나누고, 교차 엔트로피로 스스로 배운다.' },
         { no: 14, title: '문을 단 기억', tag: '심화', base: 8, desc: '8장 심화 · LSTM. 곱(×) 뉴런으로 문(게이트)을 만들어, 필요할 때만 담고(입력), 지울 때 지우고(망각), 필요할 때만 꺼내는(출력) 기억 칸을 조립한다.' },
+        { no: 15, title: 'AI가 겪는 문제', tag: '심화', base: 6, desc: 'AI의 문제점과 해결책. 정확도만 보면 속는 불균형 데이터(재현율), 배경 같은 지름길을 배우는 편향된 데이터, 살짝 민 입력에 속는 적대적 예제(여유 있는 경계), 똑같이 출발하면 못 배우는 대칭 문제(초기화). 과적합과 그 해결책은 6장 "외우지 말고 이해하기"에서 다룬다.' },
       ],
     },
   ];
@@ -1610,6 +1834,13 @@
     { term: '탐험과 활용', en: 'exploration vs exploitation', def: '새로운 행동을 시도해 볼지(탐험), 지금까지 좋았던 행동을 계속할지(활용) 사이의 저울질.' },
     { term: '보상 해킹', en: 'reward hacking', def: 'AI가 사람이 원한 목표 대신 점수 규칙의 빈틈을 찾아 점수만 올리는 것. "점수를 준 것"과 "원하는 것"이 다를 때 생긴다.' },
     { term: '역전파', en: 'backpropagation', def: '출력의 오차를 앞쪽 뉴런들에게 거꾸로 나눠 주며 모든 가중치를 고치는 방법. 거의 모든 신경망이 이렇게 배운다.' },
+    { term: '불균형 데이터', en: 'imbalanced data', def: '한쪽 종류가 아주 적은 데이터. 모두 많은 쪽이라고만 답해도 정확도가 높게 나와서, 정확도만으로는 실력을 알 수 없다.' },
+    { term: '재현율', en: 'recall', def: '진짜 그 종류인 것 중에서 AI가 찾아낸 비율. 병 찾기처럼 놓치면 안 되는 일에서 중요하다.' },
+    { term: '정밀도', en: 'precision', def: 'AI가 그 종류라고 답한 것 중에서 진짜로 맞은 비율. 재현율과 함께 본다.' },
+    { term: '지름길 학습', en: 'shortcut learning', def: '배경처럼 훈련 데이터에서만 우연히 통하는 단서를 배우는 것. 처음 보는 데이터에서 틀린다.' },
+    { term: '마진', en: 'margin', def: '결정 경계와 가장 가까운 데이터 사이의 거리. 클수록 입력이 조금 바뀌어도 답이 잘 안 바뀐다.' },
+    { term: '초기화', en: 'initialization', def: '학습을 시작할 때의 가중치를 정하는 일. 모두 같은 값이면 뉴런들이 똑같이 배워서, 작은 무작위 값으로 시작한다.' },
+    { term: '조기 종료', en: 'early stopping', def: '검증 데이터의 오차가 다시 커지기 시작하면 학습을 멈추는 방법. 과적합을 막는다.' },
   ];
 
   // ---- 관련 논문 ------------------------------------------------------------
@@ -1759,5 +1990,21 @@
     lstm: ['greff17', 'cho14'],
   };
 
-  SA.content = { PAPERS, CONCEPT_PAPERS, B, TAGS, SIGMAS, REWARD_STAGES: REWARDS, GLOSSARY, FUNCS_ALL, STAGES, TRACKS, CHAPTERS, PUZZLE_STAGES: PUZZLES, RATES, ARENA_STAGES: ARENA, LOGIC_STAGES: LOGIC, TRAIN_STAGES: TRAIN, VERSUS_ARENAS, VERSUS_SENSORS, RIVALS, LAB_ARENAS, CONCEPTS };
+  Object.assign(PAPERS, {
+    he09: { title: 'Learning from imbalanced data', who: 'He & Garcia', year: 2009, link: 'https://doi.org/10.1109/TKDE.2008.239', note: '한쪽 종류가 아주 적은 데이터에서 생기는 문제와 재표집·비용 조정 같은 해결책을 정리한 리뷰.' },
+    geirhos20: { title: 'Shortcut learning in deep neural networks', who: 'Geirhos et al.', year: 2020, link: 'https://arxiv.org/abs/2004.07780', note: '훈련 데이터에서만 통하는 지름길을 배우는 문제를 "지름길 학습(shortcut learning)"이라는 이름으로 정리했다.' },
+    ribeiro16: { title: '"Why should I trust you?": Explaining the predictions of any classifier', who: 'Ribeiro, Singh & Guestrin', year: 2016, link: 'https://arxiv.org/abs/1602.04938', note: '모델이 무엇을 보고 답했는지 설명하는 LIME. 늑대·허스키 분류기가 눈 배경을 보고 있었음을 보였다.' },
+    cortes95: { title: 'Support-vector networks', who: 'Cortes & Vapnik', year: 1995, link: 'https://doi.org/10.1007/BF00994018', note: '두 무리 사이의 여유(마진)가 가장 큰 경계를 고르는 서포트 벡터 머신.' },
+    madry17: { title: 'Towards deep learning models resistant to adversarial attacks', who: 'Madry, Makelov, Schmidt, Tsipras & Vladu', year: 2017, link: 'https://arxiv.org/abs/1706.06083', note: '일부러 민 적대적 예제로 학습시켜 신경망을 견고하게 만드는 적대적 학습.' },
+    glorot10: { title: 'Understanding the difficulty of training deep feedforward neural networks', who: 'Glorot & Bengio', year: 2010, link: 'https://proceedings.mlr.press/v9/glorot10a.html', note: '시작 가중치의 크기가 깊은 신경망 학습을 좌우한다는 것을 보이고, 층 크기에 맞춘 초기화를 제안했다.' },
+    prechelt98: { title: 'Early stopping - but when?', who: 'Prechelt', year: 1998, link: 'https://doi.org/10.1007/3-540-49430-8_3', note: '검증 데이터의 오차가 다시 커지기 시작할 때 학습을 멈추는 조기 종료를 언제 할지 비교했다.' },
+  });
+  Object.assign(CONCEPT_PAPERS, {
+    allsame: ['mp43'], comparator: ['shannon38'], deep: ['rhw86', 'hornik89'], crosspoint: ['fuku80', 'hw62'], change: ['elman90'], valuecode: ['hs06'],
+    imbalance: ['he09'], shortcut: ['geirhos20', 'ribeiro16'], robust: ['cortes95', 'madry17'], symmetry: ['glorot10', 'rhw86'],
+  });
+  CONCEPT_PAPERS.overfit = CONCEPT_PAPERS.overfit.concat(['prechelt98']);
+  CONCEPTS.overfit.ai += ' 과적합을 막는 방법도 여럿 있다. 검증 데이터의 오차가 다시 커지기 시작하면 학습을 멈추는 "조기 종료(early stopping, 프레켈트 1998)", 가중치가 너무 커지지 않게 벌점을 주는 규제, 학습 중에 뉴런을 무작위로 끄는 "드롭아웃(dropout, 스리바스타바 외 2014)", 데이터를 더 모으거나 조금씩 바꿔 늘리는 데이터 늘리기가 대표적이다.';
+
+  SA.content = { STAGE_TAGS, PAPERS, CONCEPT_PAPERS, B, TAGS, SIGMAS, REWARD_STAGES: REWARDS, GLOSSARY, FUNCS_ALL, STAGES, TRACKS, CHAPTERS, PUZZLE_STAGES: PUZZLES, RATES, ARENA_STAGES: ARENA, LOGIC_STAGES: LOGIC, TRAIN_STAGES: TRAIN, VERSUS_ARENAS, VERSUS_SENSORS, RIVALS, LAB_ARENAS, CONCEPTS };
 })();
