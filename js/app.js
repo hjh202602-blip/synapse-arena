@@ -5,7 +5,7 @@
   'use strict';
   const SA = globalThis.SA;
   const { sim, content, audio } = SA;
-  const { STAGES, STAGE_TAGS, TRACKS, TAGS, RATES, SIGMAS, LAB_ARENAS, VERSUS_ARENAS, RIVALS, CONCEPTS, GLOSSARY, FUNCS_ALL, PAPERS, CONCEPT_PAPERS } = content;
+  const { CONCEPT_TERMS, SCENES, HOW_TO, howKey, STAGES, STAGE_TAGS, TRACKS, TAGS, RATES, SIGMAS, LAB_ARENAS, VERSUS_ARENAS, RIVALS, CONCEPTS, GLOSSARY, FUNCS_ALL, PAPERS, CONCEPT_PAPERS } = content;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -53,6 +53,9 @@
   const neighbors = (st) => { const list = trackList(st), k = list.indexOf(st); return { prev: list[k - 1], next: list[k + 1] }; };
   const conceptOpen = (k) => S.settings.dev || S.concepts.includes(k);
   const mirrorUnlocked = () => S.settings.dev || !!(S.progress.s7 && S.progress.s7.cleared);
+  // 개념 카드는 그 개념을 다루는 문제를 모두 깨야 열린다
+  const conceptStages = (k) => STAGES.filter((s) => s.concept === k);
+  const conceptLeft = (k) => conceptStages(k).filter((s) => !cleared(s.id));
   function unlockConcept(k) {
     if (!k || S.concepts.includes(k)) return false;
     S.concepts.push(k);
@@ -227,6 +230,7 @@
   // 라우팅
   // ===================================================================
   let view = 'home';
+  let homeScroll = 0; // 처음 화면에서 보던 위치(문제에 들어갔다 나오면 그 자리로 돌아간다)
   let homeTrack = 'ai';
   function route() {
     const h = location.hash.replace(/^#\/?/, '');
@@ -236,24 +240,30 @@
     if (v === 'stage') {
       const i = STAGES.findIndex((s) => s.id === arg);
       if (i < 0) return go('home');
-      if (!isUnlocked(i)) { toast('이전 실험을 먼저 깨야 열려요'); return go('home'); }
-      play.mode = 'stage'; show('play'); openStage(STAGES[i]);
+      if (!isUnlocked(i)) { toast("이전 문제를 깨거나, 설정에서 '모든 장 해금'을 켜면 열려요"); return go('home'); }
+      play.mode = 'stage'; play.freeOpen = false; show('play'); openStage(STAGES[i]);
       // 배경음: 생명체가 움직이는 실험과 보스 실험은 아레나, 나머지 실험은 생각하는 시간
       audio.setScene(STAGES[i].type === 'arena' || STAGES[i].boss ? 'arena' : 'think');
-    } else if (v === 'lab') { play.mode = 'lab'; show('play'); openLab(); audio.setScene('think'); }
+    } else if (v === 'lab' && arg && STAGES.some((s) => s.id === arg && freeKind(s))) { openFree(arg); audio.setScene('think'); }
+    else if (v === 'lab') { play.mode = 'lab'; show('play'); openLab(); audio.setScene('think'); }
     else if (v === 'puzzles') { S.settings.tagFilter = '사고력'; save(); go('home'); }
     else if (v === 'versus') { show('versus'); renderVersus(); audio.setScene('arena'); }
-    else if (v === 'notes') { show('notes'); renderNotes(); audio.setScene('lab'); }
-    else { show('home'); renderHome(); audio.setScene('lab'); }
+    else if (v === 'notes') { show('notes'); renderNotes(); audio.setScene('lab'); if (arg) focusNote(arg); }
+    else {
+      show('home'); renderHome(); audio.setScene('lab');
+      window.scrollTo(0, homeScroll);
+      requestAnimationFrame(() => window.scrollTo(0, homeScroll)); // 그림·글꼴이 자리를 잡은 뒤 한 번 더
+    }
   }
   function go(r) {
     const target = '#/' + r;
     if (location.hash === target) route(); else location.hash = target;
   }
   function show(v) {
+    if (view === 'home') homeScroll = window.scrollY;
     view = v;
     for (const id of ['home', 'play', 'versus', 'notes']) $('#view-' + id).classList.toggle('hidden', id !== v);
-    const navKey = v === 'play' ? (play.mode === 'lab' ? 'lab' : 'home') : v;
+    const navKey = v === 'play' ? (play.mode === 'lab' || play.freeOpen ? 'lab' : 'home') : v;
     $$('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.go === navKey));
     document.querySelector('main').classList.toggle('play-mode', v === 'play');
     window.scrollTo(0, 0);
@@ -275,8 +285,14 @@
   let homeQuery = '';
   const norm = (t) => String(t || '').toLowerCase().replace(/\s+/g, ' ');
   const chapterOf = (st) => TRACKS[0].chapters.find((c) => c.no === st.chapter) || {};
-  const stageText = (st) => norm([st.code, st.title, st.goalText, st.brief, (st.tags || []).join(' '), st.tag,
-    CONCEPTS[st.concept] && CONCEPTS[st.concept].title, chapterOf(st).title, st.chapter + '장'].join(' '));
+  const TR = (s) => (SA.i18n ? SA.i18n.T(s) : s);
+  const stageText = (st) => {
+    const parts = [st.code, st.title, st.goalText, st.brief, (st.tags || []).join(' '), st.tag,
+      CONCEPTS[st.concept] && CONCEPTS[st.concept].title, chapterOf(st).title, st.chapter + '장'];
+    // 화면이 다른 언어면 그 언어로 쓴 글에서도 찾는다
+    const tr = SA.i18n && SA.i18n.lang !== 'ko' ? parts.concat((st.tags || []).map(TR), [st.title, st.goalText, st.brief, st.tag, CONCEPTS[st.concept] && CONCEPTS[st.concept].title, chapterOf(st).title].map(TR)) : parts;
+    return norm(tr.join(' '));
+  };
   const queryTerms = (q) => norm(q).split(' ').filter(Boolean);
   const matchStage = (st, terms) => { const t = stageText(st); return terms.every((w) => t.includes(w)); };
   function renderHome() {
@@ -329,6 +345,7 @@
     hero.attach($('#heroCanvas'));
   }
   function setQuery(q) {
+    q = TR(q);
     homeQuery = q;
     const box = $('#stageSearch');
     if (box) box.value = q;
@@ -341,17 +358,21 @@
     const filter = S.settings.tagFilter || '전체';
     const terms = queryTerms(homeQuery);
     const list = STAGES.filter((st) => (filter === '전체' || st.tag === filter) && (!terms.length || matchStage(st, terms)));
+    const nextSt = STAGES.find((x) => isUnlockedSt(x) && !cleared(x.id));
     const card = (st) => {
       const p = S.progress[st.id] || {};
       const locked = !isUnlockedSt(st);
+      const isNext = !locked && st === nextSt;
+      const badge = locked ? '' : p.cleared ? '<span class="st-badge done">✓ 풀었어요</span>' : isNext ? '<span class="st-badge next">▶ 다음 문제</span>' : '<span class="st-badge todo">안 풀었어요</span>';
       return `
-        <button class="stage-card ${st.boss ? 'boss' : ''} ${locked ? 'locked' : ''} ${p.cleared ? 'cleared' : ''}" ${locked ? 'aria-disabled="true"' : `data-go="stage/${st.id}"`}>
-          <span class="no">${st.boss ? '마무리 · ' : ''}${st.code} <span class="tag ${tagClass(st.tag)}">${esc(st.tag)}</span></span>
+        <button class="stage-card ${st.boss ? 'boss' : ''} ${locked ? 'locked' : ''} ${p.cleared ? 'cleared' : ''} ${isNext ? 'next' : ''}" ${locked ? 'aria-disabled="true"' : `data-go="stage/${st.id}"`}>
+          ${badge}<span class="no">${st.boss ? '마무리 · ' : ''}${st.code} <span class="tag ${tagClass(st.tag)}">${esc(st.tag)}</span></span>
           <h3>${esc(st.title)}</h3>
           ${stageThumb(st)}
           <p>${esc(st.goalText)}</p>
+          ${locked ? `<span class="lock-tip" role="tooltip">이전 문제를 깨거나, 설정에서 '모든 장 해금'을 켜면 열려요</span>` : ''}
           <div class="stags">${(st.tags || []).map((t) => `<span class="stag" data-q="${esc(t)}" title="이 태그로 찾기">#${esc(t)}</span>`).join('')}</div>
-          <div class="foot">${starsHtml(p.stars)}${locked ? '<span class="chip" title="앞 문제를 깨면 열려요">잠김</span>' : `<span class="chip">${esc(CONCEPTS[st.concept].title)}</span>`}</div>
+          <div class="foot">${starsHtml(p.stars)}${locked ? '<span class="chip">잠김</span>' : `<span class="chip">${esc(CONCEPTS[st.concept].title)}</span>`}</div>
         </button>`;
     };
     const chapters = tr.chapters.map((ch) => {
@@ -359,7 +380,8 @@
       if (!chList.length) return '';
       const done = chList.filter((st) => cleared(st.id)).length;
       return `
-        <div class="section-head chapter-head"><div><div class="eyebrow">${ch.no}장 · ${done}/${chList.length} <span class="tag ${tagClass(ch.tag)}">${esc(ch.tag)}</span></div><h2>${esc(ch.title)}</h2>
+        <div class="section-head chapter-head"><div><div class="eyebrow">${ch.no}장 · ${done === chList.length ? '✓ 모두 풀었어요' : `${done}/${chList.length} 풀었어요`} <span class="tag ${tagClass(ch.tag)}">${esc(ch.tag)}</span></div><h2>${esc(ch.title)}</h2>
+          <div class="ch-bar" role="img" aria-label="${done}/${chList.length}"><i style="width:${Math.round(done / chList.length * 100)}%"></i></div>
           <p class="muted" style="margin:4px 0 0;max-width:760px">${esc(ch.desc)}</p></div>
           <button class="btn sm ghost paper-btn" data-papers="${ch.no}">관련 논문 보러 가기 ↗</button></div>
         <div class="stage-grid">${chList.map(card).join('')}</div>`;
@@ -372,7 +394,7 @@
       const cs = CONCEPT_ORDER.filter((k) => conceptOpen(k) && hit(CONCEPTS[k].title + ' ' + CONCEPTS[k].line + ' ' + CONCEPTS[k].ai)).slice(0, 8);
       if (gl.length || cs.length) {
         notes = `<div class="search-notes"><h4>개념 노트에서 찾은 것</h4><div class="sn-list">
-          ${cs.map((k) => `<button class="sn" data-go="notes"><b>${esc(CONCEPTS[k].title)}</b><span>${esc(CONCEPTS[k].line)}</span></button>`).join('')}
+          ${cs.map((k) => `<button class="sn" data-go="notes/${k}"><b>${esc(CONCEPTS[k].title)}</b><span>${esc(CONCEPTS[k].line)}</span></button>`).join('')}
           ${gl.map((g) => `<button class="sn" data-go="notes"><b>${esc(g.term)}</b> <span class="muted">${esc(g.en)}</span><span>${esc(g.def)}</span></button>`).join('')}
         </div></div>`;
       }
@@ -412,10 +434,13 @@
         if (n.y < 0 || n.y > 1) n.vy *= -1;
       }
       const P = nodes.map((n) => [0.35 * w + n.x * 0.65 * w, n.y * h]);
-      g.lineWidth = 1;
+      // 블랙 모드에서는 선·점을 밝은 색으로(어두운 파랑은 어두운 배경에 묻힌다)
+      const dark = document.documentElement.dataset.theme === 'dark';
+      const lineRgb = dark ? '140,180,232' : '46,94,158', lineA = dark ? 0.42 : 0.22;
+      g.lineWidth = dark ? 1.2 : 1;
       for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
         const d = Math.hypot(P[i][0] - P[j][0], P[i][1] - P[j][1]);
-        if (d < 120) { g.strokeStyle = `rgba(46,94,158,${(1 - d / 120) * 0.22})`; g.beginPath(); g.moveTo(...P[i]); g.lineTo(...P[j]); g.stroke(); }
+        if (d < 120) { g.strokeStyle = `rgba(${lineRgb},${(1 - d / 120) * lineA})`; g.beginPath(); g.moveTo(...P[i]); g.lineTo(...P[j]); g.stroke(); }
       }
       if (rng() < dt * 3) {
         const i = Math.floor(rng() * P.length);
@@ -428,10 +453,10 @@
         p.t += dt * 1.6;
         if (p.t >= 1) { pulses.splice(k, 1); continue; }
         const a = P[p.i], b = P[p.j];
-        g.fillStyle = '#2e5e9e';
+        g.fillStyle = dark ? '#a9cbf5' : '#2e5e9e';
         g.beginPath(); g.arc(a[0] + (b[0] - a[0]) * p.t, a[1] + (b[1] - a[1]) * p.t, 2.4, 0, 6.3); g.fill();
       }
-      nodes.forEach((n, i) => { g.fillStyle = n.c; g.globalAlpha = 0.7; g.beginPath(); g.arc(P[i][0], P[i][1], 3.2, 0, 6.3); g.fill(); });
+      nodes.forEach((n, i) => { g.fillStyle = n.c; g.globalAlpha = dark ? 0.95 : 0.7; g.beginPath(); g.arc(P[i][0], P[i][1], 3.2, 0, 6.3); g.fill(); });
       g.globalAlpha = 1;
     }
     return { attach, tick };
@@ -506,7 +531,7 @@
     } else if (st.type === 'grid') {
       play.grid = newGrid(st, play.grid);
       editor.setBrain(emptyBrain());
-    } else editor.setBrain(S.brains[st.id] || emptyBrain());
+    } else editor.setBrain(S.brains[st.id] || (st.startBrain ? JSON.parse(JSON.stringify(st.startBrain)) : emptyBrain()));
     setSideMode(SIDE_TYPES.includes(st.type) ? st.type : null);
     $('#backLabel').textContent = trackOf(st).title;
     $('#btnAddHidden').classList.add('hidden');
@@ -538,6 +563,7 @@
   }
   // 처음 열 때 자동으로 띄울 안내(각 장 첫 실험에서만 의미가 있다)
   function autoTourFor(st) {
+    if (st.noTour) return null;
     return st.tour || (st.type === 'arena' ? 'arena' : st.type === 'train' ? 'train' : st.type === 'reward' ? 'reward' : null);
   }
   // "안내 다시 보기" 버튼이 띄울 안내: 진리표 실험은 기본 조작 안내, 나머지는 화면 종류별 안내
@@ -579,6 +605,7 @@
   }
   function openLab() {
     play.mode = 'lab';
+    play.freeOpen = false;
     const arena = LAB_ARENAS.find((a) => a.id === S.lab.arena) || LAB_ARENAS[0];
     play.cfg = arena;
     play.hints = 0;
@@ -644,6 +671,39 @@
     play.labMode = mode;
     if (mode === 'rl') startLabRl(false); else openLab();
   }
+  // ---- 연구실 학습 모드(자유 실험) ----
+  // 진리표·점 그래프·경사 하강·CNN·RNN·k-평균·최적화·Q-학습 화면을 문제의 틀(데이터·입력)만 빌려 와서
+  // 목표 없이 마음대로 다룬다. 채점은 해 볼 수 있지만 별·기록은 남지 않는다.
+  const FREE_KINDS = [
+    { id: 'table', name: '진리표', test: (s) => s.type === 'logic' && !s.plot },
+    { id: 'plot', name: '점 그래프', test: (s) => s.type === 'logic' && !!s.plot },
+    { id: 'train', name: '스스로 배우기(경사 하강)', test: (s) => s.type === 'train' },
+    { id: 'vision', name: '그림 보기(CNN 필터)', test: (s) => s.type === 'vision' },
+    { id: 'seq', name: '기억(RNN·LSTM)', test: (s) => s.type === 'seq' },
+    { id: 'cluster', name: '무리 짓기(k-평균)', test: (s) => s.type === 'cluster' },
+    { id: 'descent', name: '최적화(오차 지형)', test: (s) => s.type === 'descent' },
+    { id: 'grid', name: '격자 강화학습(Q-학습)', test: (s) => s.type === 'grid' },
+  ];
+  const freeKind = (st) => (st && st.id !== 'tut' ? FREE_KINDS.find((k) => k.test(st)) : null);
+  const freeList = (kind) => STAGES.filter((s) => s.id !== 'tut' && kind.test(s));
+  function openFree(id) {
+    const src = STAGES.find((s) => s.id === id);
+    const kind = freeKind(src);
+    // 원래 문제를 건드리지 않게 복사한다(진리표 목표는 바꿀 수 있으니 줄도 새로 만든다)
+    const cfg = Object.assign({}, src, {
+      id: 'free:' + src.id, free: true, src, seed: src.seed || src.id, tour: null,
+      rows: src.rows && src.rows.map((r) => r.slice()),
+      funcs: ['logic', 'seq'].includes(src.type) && !src.fixedFn ? FUNCS_ALL : src.funcs,
+    });
+    S.lab.free = src.id;
+    save();
+    play.freeOpen = true;
+    play.cfg = cfg; // show()가 메뉴의 "연구실"을 켜도록 먼저 넣어 둔다
+    show('play');
+    openStage(cfg);
+    $('#backLabel').textContent = 'AI 배우기';
+    if (kind.id === 'table' || (kind.id === 'train' && !src.plot)) toast('목표 칸을 누르면 0과 1을 바꿀 수 있어요. 나만의 진리표를 만들어 보세요');
+  }
   function resetWorld() {
     clearTimeout(play.finishTimer);
     if (isTable()) { play.world = null; setPlayState('ready'); return; }
@@ -694,6 +754,7 @@
   function renderPlayHead() {
     const head = $('#playGoal');
     const lab = $('#labBar');
+    if (play.mode === 'stage' && play.cfg.free) { renderFreeHead(); return; }
     if (play.mode === 'stage') {
       const st = play.cfg;
       const p = S.progress[st.id] || {};
@@ -717,38 +778,111 @@
       head.innerHTML = `<span class="chip">모든 감각 · 히든 뉴런 6개 · 60초</span>`;
       lab.classList.remove('hidden');
       const opts = LAB_ARENAS.map((a) => `<option value="${a.id}" ${a.id === play.cfg.id ? 'selected' : ''}>${esc(a.title)}</option>`).join('');
-      const slots = `<select class="sel" id="labLoadSlot" aria-label="저장한 뇌 불러오기"><option value="">저장한 뇌 불러오기…</option>${S.slots.map((s, i) => s ? `<option value="${i}">${i + 1}. ${esc(s.name)}</option>` : '').join('')}</select>`;
-      const modeSeg = `<div class="seg" id="labModeSeg" title="연구실 방식"><button data-m="wire" class="${play.labMode !== 'rl' ? 'on' : ''}">직접 잇기</button><button data-m="rl" class="${play.labMode === 'rl' ? 'on' : ''}">강화학습</button></div>`;
+      // 불러오기는 하나로: 예시 뇌 · 저장한 뇌 · 문제에서 만든 뇌
+      const saved = S.slots.map((s, i) => s ? `<option value="slot:${i}">${i + 1}. ${esc(s.name)}</option>` : '').join('');
+      const made = STAGES.filter((s) => s.type === 'arena' && S.brains[s.id]).map((s) => `<option value="st:${s.id}">${s.code} · ${esc(s.title)}</option>`).join('');
+      const load = `<select class="sel" id="labLoad" aria-label="뇌 불러오기"><option value="">불러오기…</option>
+          <option disabled>── 예시 뇌 ──</option><option value="ex:first">먹이 쫓기 (눈 → 바퀴 엇갈려 잇기)</option>
+          ${saved ? `<option disabled>── 저장한 뇌 ──</option>${saved}` : ''}
+          ${made ? `<option disabled>── 문제에서 만든 뇌 ──</option>${made}` : ''}</select>`;
       lab.innerHTML = `
-        ${modeSeg}
-        <select class="sel" id="labArena" aria-label="아레나">${opts}</select>
-        <select class="sel" id="labLoadStage" aria-label="실험 뇌 불러오기"><option value="">실험 뇌 불러오기…</option>${STAGES.filter((s) => s.type === 'arena' && S.brains[s.id]).map((s) => `<option value="${s.id}">${s.code} · ${esc(s.title)}</option>`).join('')}</select>
-        <button class="btn sm" id="labSave">저장…</button>${slots}
-        <button class="btn sm" id="labExport" title="뇌를 코드로 복사">내보내기</button>
-        <button class="btn sm" id="labImport" title="뇌 코드 붙여넣기">가져오기</button>`;
+        <div class="lab-group"><span class="lab-cap">방식</span>${labModeSeg(play.labMode === 'rl' ? 'rl' : 'wire')}</div>
+        <div class="lab-group"><span class="lab-cap">아레나</span><select class="sel" id="labArena" aria-label="아레나">${opts}</select></div>
+        <div class="lab-group"><span class="lab-cap">뇌</span>${load}
+          <button class="btn sm" id="labSave" title="이름을 붙여 저장해요. 저장한 뇌는 대결에 내보낼 수 있어요">저장…</button>
+          <button class="btn sm ghost" id="labExport" title="뇌를 코드로 복사해서 친구에게 보내요">내보내기</button>
+          <button class="btn sm ghost" id="labImport" title="친구에게 받은 뇌 코드를 붙여 넣어요">가져오기</button></div>`;
       $('#labArena').onchange = (e) => { S.lab.arena = e.target.value; save(); if (play.labMode === 'rl') startLabRl(true); else openLab(); };
-      $$('#labModeSeg button').forEach((b) => (b.onclick = () => setLabMode(b.dataset.m)));
-      $('#labLoadStage').onchange = (e) => {
-        const id = e.target.value;
-        if (!id) return;
-        loadIntoLab(S.brains[id], `${STAGES.find((s) => s.id === id).code}의 뇌를 불러왔어요`);
-      };
-      $('#labSave').onclick = openSaveDialog;
-      $('#labLoadSlot').onchange = (e) => {
-        const s = S.slots[+e.target.value];
-        if (!e.target.value || !s) return;
+      bindLabModeSeg();
+      $('#labLoad').onchange = (e) => {
+        const [k, v] = e.target.value.split(':');
+        let brain = null, msg = '';
+        if (k === 'ex') { brain = STAGES.find((x) => x.id === 'first').startBrain; msg = '예시 뇌(먹이 쫓기)를 불러왔어요. ▶ 실행을 눌러 보고, 선의 세기를 바꿔 보세요'; }
+        else if (k === 'slot' && S.slots[+v]) { brain = S.slots[+v].brain; msg = `"${S.slots[+v].name}"을 불러왔어요`; }
+        else if (k === 'st' && S.brains[v]) { brain = S.brains[v]; msg = `${STAGES.find((x) => x.id === v).code}의 뇌를 불러왔어요`; }
+        if (!brain) return;
         if (play.labMode === 'rl') { play.labMode = 'wire'; if (play.rl) play.rl.running = false; }
-        loadIntoLab(s.brain, `"${s.name}"을 불러왔어요`);
+        loadIntoLab(brain, msg);
         openLab();
       };
+      $('#labSave').onclick = openSaveDialog;
       $('#labExport').onclick = exportBrain;
       $('#labImport').onclick = importBrain;
     }
   }
+  // 연구실 방식 고르기: 직접 잇기 · 강화학습 · 학습 모드(자유 실험)
+  const LAB_MODES = [['wire', '직접 잇기', '내가 선을 이어 뇌를 만들어요'], ['rl', '강화학습', '점수만 정하면 뇌가 스스로 배워요'], ['free', '학습 모드', '진리표·CNN 같은 문제 화면을 목표 없이 다뤄요']];
+  function labModeSeg(on) {
+    return `<div class="seg" id="labModeSeg" title="연구실 방식">${LAB_MODES.map(([m, t, d]) => `<button data-m="${m}" class="${m === on ? 'on' : ''}" title="${d}">${t}</button>`).join('')}</div>`;
+  }
+  // 연구실 길잡이: 지금 할 일 · 이렇게 해요 · 방식 세 가지
+  const LAB_GUIDE = {
+    wire: { now: '감각 뉴런을 바퀴에 이어서, 먹이를 찾아 먹는 생명체를 마음대로 만들어 보세요. 정답도 시간 제한도 없어요.', how: [
+      '왼쪽 뇌에서 감각 뉴런(눈 등)을 끌어 바퀴 뉴런에 놓아 선을 이어요. 처음이라면 위쪽 "뇌 → 불러오기…"에서 "먹이 쫓기" 예시로 시작해도 돼요.',
+      '▶ 실행(Space)으로 움직임을 보고, 선 위에서 마우스 휠을 굴려 세기를 바꿔 가며 다듬어요. "아레나"에서 다른 세상도 골라 보세요.',
+      '마음에 들면 "저장…"으로 이름을 붙여 두세요. 저장한 뇌는 대결에 내보낼 수 있어요.'] },
+    rl: { now: '선을 직접 잇지 않고, 무엇에 점수를 줄지만 정해서 뇌가 스스로 배우게 해 보세요.', how: [
+      '아래 "점수 규칙"에서 칭찬할 행동에는 +, 피하게 할 행동에는 − 점수를 줘요.',
+      '"▶ 학습 시작"(Space)을 누르면 세대마다 뇌가 조금씩 바뀌며 점수가 오르는 쪽으로 배워요. 위 화면에서 지금 뇌가 움직여요.',
+      '마음에 들면 위쪽 "방식"에서 "직접 잇기"로 바꿔 손으로 다듬거나, "저장…"으로 남겨 두세요.'] },
+  };
+  function labGuideHtml(mode) {
+    const g = LAB_GUIDE[mode];
+    return `<div class="guide">
+      <div class="g-now"><b>지금 할 일</b> ${esc(g.now)}</div>
+      <details class="g-how" open><summary>이렇게 해요</summary><ol>${g.how.map((h) => `<li>${esc(h)}</li>`).join('')}</ol></details>
+      <div class="g-next"><b>방식 고르기</b> ${LAB_MODES.map(([, t, d]) => `<span class="lab-mode-d"><b>${t}</b> ${d}</span>`).join(' · ')}</div>
+    </div>`;
+  }
+  function bindLabModeSeg() {
+    $$('#labModeSeg button').forEach((b) => (b.onclick = () => {
+      const m = b.dataset.m;
+      if (m === 'free') { if (!play.freeOpen) go('lab/' + (S.lab.free && freeKind(STAGES.find((s) => s.id === S.lab.free)) ? S.lab.free : 'L5')); return; }
+      if (play.freeOpen) { play.labMode = m; go('lab'); return; }
+      setLabMode(m);
+    }));
+  }
+  function renderFreeHead() {
+    const st = play.cfg, src = st.src, kind = freeKind(src);
+    $('#playTitle').innerHTML = `연구실 · 학습 모드 <button class="btn sm ghost" id="btnTourAgain" title="이 화면의 기능 안내를 다시 봐요">? 안내 다시 보기</button>`;
+    $('#btnTourAgain').onclick = replayTour;
+    $('#playGoal').innerHTML = `<span class="chip c-gold">자유 실험</span><span class="chip">틀: ${src.code} · ${esc(src.title)}</span><span class="chip">채점은 해 볼 수 있고 기록은 남지 않아요</span>`;
+    const lab = $('#labBar');
+    lab.classList.remove('hidden');
+    lab.innerHTML = `<div class="lab-group"><span class="lab-cap">방식</span>${labModeSeg('free')}</div>
+      <div class="lab-group"><span class="lab-cap">화면</span><select class="sel" id="freeKind" aria-label="학습 모드 종류">${FREE_KINDS.map((k) => `<option value="${k.id}" ${k === kind ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></div>
+      <div class="lab-group"><span class="lab-cap">문제 틀</span><select class="sel" id="freeTpl" aria-label="문제 틀">${freeList(kind).map((s) => `<option value="${s.id}" ${s === src ? 'selected' : ''}>${s.code} · ${esc(s.title)}</option>`).join('')}</select>
+      <button class="btn sm" id="freeReset" title="이 틀을 처음 상태로">↺ 처음 상태로</button></div>`;
+    bindLabModeSeg();
+    $('#freeKind').onchange = (e) => go('lab/' + freeList(FREE_KINDS.find((k) => k.id === e.target.value))[0].id);
+    $('#freeTpl').onchange = (e) => go('lab/' + e.target.value);
+    $('#freeReset').onclick = () => { S.brains[st.id] = null; play.train = play.km = play.desc = play.grid = null; save(); openFree(src.id); };
+  }
+  // 남이 보낸 뇌 코드는 믿지 않는다: 정해진 모양(숫자·짧은 이름)만 남기고 나머지는 버린다
+  const ID_RE = /^[A-Za-z][A-Za-z0-9_]{0,23}$/;
+  const finite = (v, d) => (Number.isFinite(+v) ? +v : d);
+  function cleanBrain(b) {
+    if (!b || typeof b !== 'object' || !Array.isArray(b.synapses)) return null;
+    const hidden = (Array.isArray(b.hidden) ? b.hidden : []).slice(0, 12)
+      .filter((h) => h && typeof h.id === 'string' && /^h\d{1,2}$/.test(h.id))
+      .map((h) => ({ id: h.id, x: Math.min(1, Math.max(0, finite(h.x, 0.5))), y: Math.min(1, Math.max(0, finite(h.y, 0.5))) }));
+    const synapses = b.synapses.slice(0, 400)
+      .filter((x) => x && typeof x.from === 'string' && typeof x.to === 'string' && ID_RE.test(x.from) && ID_RE.test(x.to))
+      .map((x) => ({ from: x.from, to: x.to, w: Math.min(9, Math.max(-9, finite(x.w, 1))) }));
+    const out = { hidden, synapses };
+    if (b.fn && typeof b.fn === 'object') {
+      for (const id of Object.keys(b.fn).slice(0, 40)) {
+        const f = b.fn[id];
+        if (ID_RE.test(id) && typeof f === 'string' && Object.prototype.hasOwnProperty.call(sim.FUNCS, f)) (out.fn = out.fn || {})[id] = f;
+      }
+    }
+    return out;
+  }
   function loadIntoLab(brain, msg) {
-    S.lab.brain = JSON.parse(JSON.stringify(brain));
+    editor.setBrain(cleanBrain(JSON.parse(JSON.stringify(brain))) || emptyBrain(), true);
+    // 편집기가 한 번 더 걸러 낸 뇌(이 화면에서 쓸 수 있는 뉴런·선만)를 저장한다
+    S.lab.brain = JSON.parse(JSON.stringify(editor.getBrain()));
     save();
-    editor.setBrain(S.lab.brain, true);
     resetWorld();
     updateBrainCount();
     toast(msg);
@@ -785,45 +919,81 @@
     m.querySelector('[data-close]').onclick = closeModal;
     $('#importGo').onclick = () => {
       try {
-        const raw = $('#importText').value.trim();
-        if (!raw.startsWith('SA1:')) throw new Error('prefix');
-        const b = JSON.parse(decodeURIComponent(escape(atob(raw.slice(4)))));
-        if (!b || !Array.isArray(b.synapses)) throw new Error('shape');
+        const raw = $('#importText').value.replace(/\s+/g, '');
+        if (!raw.startsWith('SA1:') || raw.length > 60000) throw new Error('prefix');
+        const b = cleanBrain(JSON.parse(decodeURIComponent(escape(atob(raw.slice(4))))));
+        if (!b) throw new Error('shape');
         closeModal();
         loadIntoLab(b, '뇌 코드를 가져왔어요');
       } catch (e) { toast('코드를 읽지 못했어요. 처음부터 끝까지 다 복사했는지 확인해 주세요'); }
     };
   }
 
+  // 쉬운 말 옆에 붙이는 전문 용어: "(학습률 - learning rate)". 영어 화면에서는 "(learning rate)"만 보인다
+  const jg = (ko, en) => `<span class="jargon">(<span class="jk">${ko}</span><span class="jsep"> - </span>${en})</span>`;
+  // 길잡이: 지금 할 일(쉬운 말) · 이 화면 조작 순서 · 다음 문제에서 할 일
+  function guideHtml(st) {
+    const how = HOW_TO[howKey(st)];
+    const next = st.free ? null : neighbors(st).next;
+    // 조작 순서는 그 화면을 처음 만나는 장(0~5장)에서는 펼쳐 두고, 익숙해진 뒤에는 접어 둔다
+    const firstOfType = STAGES.find((x) => howKey(x) === howKey(st) && x.id !== 'tut') === (st.src || st);
+    return `<div class="guide">
+      <div class="g-now"><b>지금 할 일</b> ${st.free ? `목표 없이 마음대로 바꿔 보세요. 원래 문제(${st.src.code})의 목표는 "${esc(st.src.goalText)}"예요. 채점은 해 볼 수 있지만 기록은 남지 않아요.` : esc(st.todo || st.goalText)}</div>
+      ${how ? `<details class="g-how" ${firstOfType || st.free || st.chapter <= 1 ? 'open' : ''}><summary>이렇게 해요</summary><ol>${how.map((h) => `<li>${esc(h)}</li>`).join('')}</ol></details>` : ''}
+      ${next ? `<div class="g-next"><b>다음에는</b> ${next.code} · ${esc(next.title)} — ${esc(next.todo || next.goalText)}</div>` : ''}
+    </div>`;
+  }
   function renderBrief() {
     const box = $('#brief');
     const cfg = play.cfg;
     const sensors = (play.mode === 'stage' ? cfg.sensors : LAB_SENSORS).map((id) => sim.SENSORS.find((s) => s.id === id));
     const legend = sensors.map((s) => `<span class="chip" title="${esc(s.desc)}"><span class="dot" style="background:${{ eyeL: '#ffa94d', eyeR: '#ffe066' }[s.id] || SENSOR_COLOR[s.group]}"></span>${esc(s.name)}</span>`).join('');
     if (play.mode === 'stage') {
-      const hints = cfg.hints.slice(0, play.hints).map((h) => `<li>${esc(h)}</li>`).join('');
-      box.innerHTML = `<p>${esc(cfg.brief)}</p>
+      box.innerHTML = `${guideHtml(cfg)}<p>${esc(cfg.brief)}</p>
         ${sensors.length ? `<div class="sensor-legend"><span class="muted" style="font-size:13px">${cfg.type === 'arena' ? '쓸 수 있는 감각' : '입력'}</span>${legend}</div>` : ''}
-        ${hints ? `<ul class="hint-list">${hints}</ul>` : ''}
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          ${play.hints < cfg.hints.length ? `<button class="btn sm" id="btnHint">힌트 보기 (${play.hints + 1}/${cfg.hints.length})</button>` : '<button class="btn sm gold" id="btnAnswer">정답 보기</button>'}
-          <button class="btn sm ghost" data-go="notes">개념 노트</button>
+        <div class="brief-links"><span class="muted">관련 자료</span>
+          <button class="btn sm ghost" data-go="notes/${cfg.concept}">개념 노트: ${esc(CONCEPTS[cfg.concept].title)}</button>
           <button class="btn sm ghost" id="btnPapers">관련 논문 ↗</button>
         </div>`;
-      const hb = $('#btnHint');
-      if (hb) hb.onclick = () => { play.hints++; renderBrief(); };
-      const ab = $('#btnAnswer');
-      if (ab) ab.onclick = confirmAnswer;
       $('#btnPapers').onclick = () => openPapers(cfg.chapter, cfg.concept);
+      renderHints();
     } else {
+      renderHints();
       box.innerHTML = play.labMode === 'rl'
-        ? `<p><b>강화학습 모드.</b> ${esc(cfg.desc)} 점수 규칙을 정하고 학습시키면 이 아레나에서 20초씩 시험하며 뇌가 스스로 바뀐다. "학습할 선"에서 내가 직접 이은 선만 다듬을지, 감각 → 바퀴를 모두 이은 뇌를 처음부터 배울지 고를 수 있다. 마음에 들면 <b>저장…</b>으로 이름을 붙여 두고 대결에서 불러오자.</p>
-        <div class="sensor-legend">${legend}</div>`
-        : `<p>${esc(cfg.desc)} 먹이를 먹으면 점대칭 자리에 새 먹이가 생긴다. 만든 뇌는 <b>저장</b>해 두면 대결에 내보낼 수 있다. 위의 <b>강화학습</b>을 누르면 점수 규칙만 정해서 뇌를 학습시킬 수도 있다.</p>
-        <div class="sensor-legend">${legend}</div>`;
+        ? `${labGuideHtml('rl')}<p>${esc(cfg.desc)} 이 아레나에서 20초씩 시험하며 뇌가 바뀌어요. "학습할 선"에서 내가 직접 이은 선만 다듬을지, 감각 → 바퀴를 모두 이은 뇌를 처음부터 배울지 고를 수 있어요.</p>
+        <div class="sensor-legend"><span class="muted" style="font-size:13px">쓸 수 있는 감각</span>${legend}</div>`
+        : `${labGuideHtml('wire')}<p>${esc(cfg.desc)} 먹이를 먹으면 점대칭 자리에 새 먹이가 생겨요.</p>
+        <div class="sensor-legend"><span class="muted" style="font-size:13px">쓸 수 있는 감각</span>${legend}</div>`;
     }
   }
 
+  // 힌트 상자: 채점하기(또는 실행) 버튼 바로 밑에 둔다
+  const hintBox = document.createElement('div');
+  hintBox.className = 'hint-box';
+  hintBox.id = 'hintBox';
+  function placeHints() {
+    const lp = $('#logicPanel');
+    const act = !lp.classList.contains('hidden') && lp.querySelector('.lp-actions');
+    const ref = act || $('#arenaControls');
+    if (ref.nextElementSibling !== hintBox) ref.after(hintBox);
+  }
+  // 표 패널은 자주 새로 그려지므로, 그때마다 힌트 상자를 채점 버튼 밑으로 다시 옮긴다
+  new MutationObserver(() => { if (!hintBox.classList.contains('hidden')) placeHints(); }).observe($('#logicPanel'), { childList: true });
+  function renderHints() {
+    const cfg = play.cfg;
+    const on = play.mode === 'stage' && cfg && cfg.hints;
+    hintBox.classList.toggle('hidden', !on);
+    if (!on) { hintBox.innerHTML = ''; return; }
+    const hints = cfg.hints.slice(0, play.hints).map((h) => `<li>${esc(h)}</li>`).join('');
+    hintBox.innerHTML = `${hints ? `<ul class="hint-list">${hints}</ul>` : ''}
+      <div class="hint-row">${play.hints < cfg.hints.length ? `<button class="btn sm" id="btnHint">💡 힌트 보기 (${play.hints + 1}/${cfg.hints.length})</button>` : '<button class="btn sm gold" id="btnAnswer">정답 보기</button>'}
+        ${!hints ? '<span class="muted">막히면 힌트를 하나씩 열어 보세요.</span>' : ''}</div>`;
+    const hb = $('#btnHint');
+    if (hb) hb.onclick = () => { play.hints++; renderHints(); };
+    const ab = $('#btnAnswer');
+    if (ab) ab.onclick = confirmAnswer;
+    placeHints();
+  }
   function renderInspector(d) {
     const box = $('#inspector');
     if (!d) {
@@ -864,7 +1034,7 @@
       inspKey = key;
       box.innerHTML = `<h4>${esc(d.fromName)} → ${esc(d.toName)} ${kindChip(d.w)}</h4>
         <div class="row">
-          <span class="muted">세기</span>
+          <span class="muted">세기 ${jg('가중치', 'weight')}</span>
           <input type="range" id="wRange" min="-3" max="3" step="0.1" value="${d.w}" aria-label="시냅스 세기">
           <span class="wval" id="wVal" style="color:${exc ? 'var(--exc)' : 'var(--inh)'}">${(d.w > 0 ? '+' : '') + d.w.toFixed(1)}</span>
         </div>
@@ -1021,7 +1191,7 @@
     const success = wl.status === 'success';
     const isNew = { time: false, syn: false };
     let discovered = false;
-    if (success) {
+    if (success && !st.free) {
       const p = S.progress[st.id] = Object.assign({ stars: [false, false, false] }, prev);
       p.cleared = true;
       p.stars = p.stars.map((v, i) => v || !!stars[i]);
@@ -1030,34 +1200,36 @@
         if (p.minSyn == null || brain.synapses.length < p.minSyn) { p.minSyn = brain.synapses.length; isNew.syn = prev.minSyn != null; }
         p.bestBrain = brain;
       }
-      discovered = unlockConcept(st.concept);
+      discovered = !conceptLeft(st.concept).length && unlockConcept(st.concept);
       save();
     }
-    const next = neighbors(st).next;
+    const next = st.free ? null : neighbors(st).next;
     const conds = [`<li class="${success ? 'ok' : ''}">${esc(st.goalText)}</li>`].concat((st.stars || []).map((cd, i) => `<li class="${stars[i + 1] ? 'ok' : ''}">${esc(sim.condText(cd))}</li>`)).join('');
     const ct = CONCEPTS[st.concept];
     const m = openModal(`
       <div class="eyebrow">${st.code} · ${esc(st.title)}</div>
-      <h2>${success ? '실험 성공!' : '아직 아니에요'}</h2>
+      <h2>${success ? '실험 성공!' : '아직 아니에요'}</h2>${st.free ? '<div class="muted">연구실 자유 실험이라 별·기록은 남지 않아요.</div>' : ''}
       <div class="muted">${success ? (stars.every(Boolean) ? '세 가지 조건을 모두 채웠어요.' : '별을 더 모으려면 조건을 확인해 보세요.') : esc(failText || '')}</div>
       <div class="big-stars">${stars.map((v) => `<span class="${v ? 'on' : ''}">★</span>`).join('')}</div>
       <ul class="cond-list">${conds}</ul>
       <div class="stat-grid">${statsHtml(isNew)}</div>
       ${discovered ? `<div class="discover">새 개념 발견 · <b>${esc(ct.title)}</b><div class="muted" style="margin-top:4px">${esc(ct.line)}</div></div>` : ''}
+      ${success && !st.free && !conceptOpen(st.concept) && conceptLeft(st.concept).length ? `<div class="muted">개념 카드까지 남은 문제: ${conceptLeft(st.concept).map((x) => x.code).join(', ')}</div>` : ''}
       ${!success && play.hints < st.hints.length ? '<p class="muted">막혔다면 힌트를 열어 보세요.</p>' : ''}
+      ${success && next ? `<div class="result-next"><b>다음에는</b> ${next.code} · ${esc(next.title)} — ${esc(next.todo || next.goalText)}</div>` : ''}
       <div class="modal-actions">
         ${!success && play.hints < st.hints.length ? '<button class="btn" data-a="hint">힌트 보기</button>' : ''}
         ${discovered ? '<button class="btn" data-a="note">개념 노트 보기</button>' : ''}
         <button class="btn" data-a="edit">${st.type === 'train' ? '닫기' : st.type === 'vision' ? '필터 고치기' : st.type === 'cluster' ? '다시 묶기' : '뇌 고치기'}</button>
         ${st.type === 'arena' ? `<button class="btn ${success && next ? '' : 'primary'}" data-a="again">다시 실행</button>` : ''}
         ${success && next ? `<button class="btn primary" data-a="next">다음 실험 →</button>` : ''}
-        ${success && !next ? `<button class="btn gold" data-a="versus">대결하러 가기 →</button>` : ''}
+        ${success && !next && !st.free ? `<button class="btn gold" data-a="versus">대결하러 가기 →</button>` : ''}
       </div>`);
     if (discovered) audio.sfx.discover();
     const on = (a, f) => { const b = m.querySelector(`[data-a="${a}"]`); if (b) b.onclick = f; };
     on('edit', closeModal);
-    on('hint', () => { closeModal(); play.hints++; renderBrief(); });
-    on('note', () => { closeModal(); go('notes'); });
+    on('hint', () => { closeModal(); play.hints++; renderHints(); hintBox.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+    on('note', () => { closeModal(); go('notes/' + st.concept); });
     on('again', () => { closeModal(); resetWorld(); toggleRun(); });
     on('next', () => { closeModal(); go('stage/' + next.id); });
     on('versus', () => { closeModal(); go('versus'); });
@@ -1149,13 +1321,13 @@
         <div class="seg pts" data-ev="${k}">${PTS.map((v) => `<button data-v="${v}" class="${(rl.rw[k] || 0) === v ? 'on' : ''} ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' + v : v}</button>`).join('')}</div>
       </div>`).join('');
     const labPick = rlIsLab() ? `
-      <div class="set-row" id="rlShapeRow"><span><b>학습할 선</b> <span class="muted">어떤 선의 가중치를 바꾸며 배울까</span></span>
+      <div class="set-row" id="rlShapeRow"><span><b>학습할 선</b> <span class="muted">어떤 선의 가중치를 바꾸며 배울까 ${jg('학습할 파라미터', 'trainable parameters')}</span></span>
         <div class="seg" id="rlShape"><button data-s="mine" class="${play.labRlShape === 'mine' ? 'on' : ''}">내가 이은 선</button><button data-s="all" class="${play.labRlShape === 'all' ? 'on' : ''}">감각→바퀴 전부</button></div></div>` : '';
     box.innerHTML = `
-      <div class="lp-head"><h3>점수 규칙</h3><span class="muted">무엇에 몇 점을 줄지 정하세요. 생명체는 점수의 합이 커지는 쪽으로 스스로 바뀝니다.</span></div>
+      <div class="lp-head"><h3>점수 규칙 ${jg('보상 함수', 'reward function')}</h3><span class="muted">무엇에 몇 점을 줄지 정하세요. 생명체는 점수의 합이 커지는 쪽으로 스스로 바뀝니다.</span></div>
       <div class="rules" id="rewardRules">${rows}</div>
       ${labPick}
-      <div class="set-row" id="sigRow"><span><b>탐험 정도</b> <span class="muted">뇌를 한 번에 얼마나 크게 바꿔 볼까</span></span>
+      <div class="set-row" id="sigRow"><span><b>탐험 정도</b> <span class="muted">뇌를 한 번에 얼마나 크게 바꿔 볼까 ${jg('변이 크기', 'mutation scale σ')}</span></span>
         <div class="seg" id="sigSeg">${SIGMAS.map((v, i) => `<button data-i="${i}" class="${i === rl.sigmaIdx ? 'on' : ''}">${v}</button>`).join('')}</div></div>
       <div class="lp-actions">
         <button class="btn primary" id="btnLearn"></button>
@@ -1364,7 +1536,7 @@
     const outCard = st.mode === 'class' ? `
       <div class="filter-card out-card">
         <h4>출력 뉴런 <span class="muted">풀링한 값 → 답</span></h4>
-        ${d.filters.map((_, k) => `<label class="set-row"><span>필터 ${FNAMES[k]}의 최댓값 ×</span><span class="fb-wrap"><input type="range" min="-2" max="2" step="0.5" value="${d.out.w[k]}" data-ow="${k}"><b class="wval">${fmt(d.out.w[k])}</b></span></label>`).join('')}
+        ${d.filters.map((_, k) => `<label class="set-row"><span>필터 ${FNAMES[k]}의 최댓값 × ${jg('출력 가중치', 'output weight')}</span><span class="fb-wrap"><input type="range" min="-2" max="2" step="0.5" value="${d.out.w[k]}" data-ow="${k}"><b class="wval">${fmt(d.out.w[k])}</b></span></label>`).join('')}
         <label class="set-row"><span>편향</span><span class="fb-wrap"><input type="range" min="-2" max="2" step="0.5" value="${d.out.b}" data-ob="1"><b class="wval">${fmt(d.out.b)}</b></span></label>
       </div>` : '';
     box.innerHTML = `<div class="vl-head"><h3>필터 편집기</h3><span class="muted">칸을 누르면 0 → +1 → -1 순서로 바뀌어요 · 휠로 ±0.5 · 우클릭은 0</span></div>
@@ -1515,7 +1687,7 @@
     const conv = sim.kmConverged(st.pts, km.centers);
     return `<div class="stat-grid">
       ${st.stepper ? `<div><div class="k">걸음 수</div><div class="v">${km.steps}</div></div>` : ''}
-      <div><div class="k">거리 합</div><div class="v">${sim.kmInertia(st.pts, km.centers).toFixed(3)}</div></div>
+      <div><div class="k">거리 합 ${jg('관성', 'inertia')}</div><div class="v">${sim.kmInertia(st.pts, km.centers).toFixed(3)}</div></div>
       ${st.stepper ? `<div><div class="k">상태</div><div class="v">${conv ? '멈춤' : '움직임'}</div></div>` : ''}</div>
       <p class="muted km-note">거리 합 = 모든 점과 자기 중심 사이 거리(제곱)의 합. 작을수록 잘 묶인 거예요. k-평균은 이 값을 줄이는 쪽으로만 움직여요.</p>`;
   }
@@ -1523,7 +1695,7 @@
     const st = play.cfg, km = play.km, box = $('#visionLeft');
     box.innerHTML = `<div class="vl-head"><h3>중심 다루기</h3><span class="muted">${st.drag ? '중심(큰 동그라미)은 오른쪽 점 지도에서 끌어서 옮길 수 있어요.' : '이번에는 중심을 손으로 옮길 수 없어요. 한 걸음 버튼을 써요.'}</span></div>
       <div class="filter-cards">
-        ${st.chooseK ? `<div class="filter-card out-card"><h4>중심 수 k <span class="muted">바꾸면 중심이 처음 자리로 돌아가요</span></h4>
+        ${st.chooseK ? `<div class="filter-card out-card"><h4>중심 수 k ${jg('군집 수', 'number of clusters')} <span class="muted">바꾸면 중심이 처음 자리로 돌아가요</span></h4>
           <div class="seg" id="kSeg">${[1, 2, 3, 4, 5, 6].map((k) => `<button data-k="${k}" class="${k === km.k ? 'on' : ''}">${k}</button>`).join('')}</div></div>` : ''}
         ${st.stepper ? `<div class="filter-card out-card"><h4>k-평균 한 걸음</h4>
           <ol class="km-steps"><li><b>묶기</b> 각 점은 가장 가까운 중심의 색을 받는다.</li><li><b>옮기기</b> 각 중심은 자기 색 점들의 한가운데(평균)로 간다.</li></ol>
@@ -1639,7 +1811,7 @@
     renderKmLeft(); renderKmRight();
     stageResult({ status: ok ? 'success' : 'fail', inertia, steps: km.steps, kTried: km.kTried.size }, emptyBrain(), () => `
       <div><div class="k">중심 수</div><div class="v">${km.centers.length}</div></div>
-      <div><div class="k">거리 합</div><div class="v">${inertia.toFixed(3)}</div></div>
+      <div><div class="k">거리 합 ${jg('관성', 'inertia')}</div><div class="v">${inertia.toFixed(3)}</div></div>
       <div><div class="k">걸음 수</div><div class="v">${km.steps}</div></div>`,
     !match ? (km.centers.length !== groups ? `중심 수가 무리 수와 달라요. 무리를 하나로 합쳤거나 억지로 쪼갰어요.` : '아직 한 무리가 두 색으로 나뉘었거나, 두 무리가 한 색이에요.')
       : '무리는 맞게 나뉘었지만 중심이 아직 움직이는 중이에요. 멈출 때까지 걸어 보세요.');
@@ -1729,9 +1901,9 @@
     const seg = (id, items, cur, label) => `<div class="seg" id="${id}">${items.map((v) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${label(v)}</button>`).join('')}</div>`;
     box.innerHTML = `<div class="vl-head"><h3>공 굴리기</h3><span class="muted">설정을 바꾸면 공이 출발점으로 돌아가요.${st.dragStart ? ' 출발점(흰 고리)은 오른쪽 지형에서 끌어서 옮길 수 있어요.' : ''}</span></div>
       <div class="filter-cards">
-        <div class="filter-card out-card"><h4>최적화 방법${st.opts.length > 1 ? '' : ' · 경사 하강'}</h4>${st.opts.length > 1 ? seg('optSeg', st.opts, d.o.opt, (v) => OPT_NAME[v]) : ''}<p class="muted km-note">${esc(OPT_DESC[d.o.opt])}</p></div>
-        ${d.o.opt === 'momentum' ? `<div class="filter-card out-card"><h4>관성 β <span class="muted">지난 속도를 얼마나 기억할까</span></h4>${seg('betaSeg', st.betas, d.o.beta, (v) => v)}</div>` : ''}
-        <div class="filter-card out-card"><h4>학습률 <span class="muted">한 걸음의 크기</span></h4>${seg('lrSeg', st.lrs, d.o.lr, (v) => v)}</div>
+        <div class="filter-card out-card"><h4>최적화 방법 ${jg('옵티마이저', 'optimizer')}${st.opts.length > 1 ? '' : ' · 경사 하강'}</h4>${st.opts.length > 1 ? seg('optSeg', st.opts, d.o.opt, (v) => OPT_NAME[v]) : ''}<p class="muted km-note">${esc(OPT_DESC[d.o.opt])}</p></div>
+        ${d.o.opt === 'momentum' ? `<div class="filter-card out-card"><h4>관성 β <span class="muted">지난 속도를 얼마나 기억할까 ${jg('모멘텀 계수', 'momentum')}</span></h4>${seg('betaSeg', st.betas, d.o.beta, (v) => v)}</div>` : ''}
+        <div class="filter-card out-card"><h4>학습률 <span class="muted">한 걸음의 크기 ${jg('학습률', 'learning rate')}</span></h4>${seg('lrSeg', st.lrs, d.o.lr, (v) => v)}</div>
         <div class="filter-card out-card"><div class="lp-actions"><button class="btn" id="btnDStep">한 걸음</button><button class="btn" id="btnDRun">${d.auto ? '⏸ 멈추기' : '▶ 멈출 때까지'}</button><button class="btn ghost" id="btnDReset">↺ 처음으로 <kbd>R</kbd></button></div></div>
         <div class="filter-card out-card" id="descStats">${descStatsHtml()}</div>
       </div>`;
@@ -1930,7 +2102,7 @@
     return `<div class="stat-grid">
       ${st.mode === 'vi' ? `<div><div class="k">퍼뜨린 횟수</div><div class="v">${gs.sweeps}</div></div>` : `<div><div class="k">해 본 판</div><div class="v">${gs.episodes} / ${st.maxEpisodes}</div></div>
       <div><div class="k">지난 판</div><div class="v">${gs.last ? `${gs.last.path.length - 1}걸음 · ${gs.last.total > 0 ? '+' : ''}${Math.round(gs.last.total * 10) / 10}점` : '-'}</div></div>`}
-      <div><div class="k">출발 칸의 가치</div><div class="v">${v0.toFixed(2)}</div></div></div>`;
+      <div><div class="k">출발 칸의 가치 ${jg('상태 가치', 'state value')}</div><div class="v">${v0.toFixed(2)}</div></div></div>`;
   }
   function renderGridLeft() {
     const st = play.cfg, gs = play.grid, box = $('#visionLeft');
@@ -1938,9 +2110,9 @@
     const vi = st.mode === 'vi';
     box.innerHTML = `<div class="vl-head"><h3>${vi ? '가치 퍼뜨리기' : 'Q러닝'}</h3><span class="muted">${vi ? '지도를 다 알 때: 칸마다 가치를 계산해서 퍼뜨린다.' : '지도를 모를 때: 직접 돌아다니며 칸마다 방향별 점수(Q)를 고친다.'} 설정을 바꾸면 처음부터 다시 배워요.</span></div>
       <div class="filter-cards">
-        <div class="filter-card out-card"><h4>할인율 γ <span class="muted">나중 보상을 얼마로 칠까</span></h4>${st.gammas ? seg('gammaSeg', st.gammas, gs.gamma) : `<p class="muted km-note">이 실험은 γ = ${gs.gamma}로 정해져 있어요.</p>`}</div>
-        ${vi ? '' : `<div class="filter-card out-card"><h4>학습률 α <span class="muted">한 번에 Q를 얼마나 고칠까</span></h4>${seg('alphaSeg', st.alphas, gs.alpha)}</div>
-        <div class="filter-card out-card"><h4>탐험 ε <span class="muted">일부러 아무 데나 가 볼 비율</span></h4>${seg('epsSeg', st.epss, gs.eps)}</div>`}
+        <div class="filter-card out-card"><h4>할인율 γ <span class="muted">나중 보상을 얼마로 칠까 ${jg('할인율', 'discount factor')}</span></h4>${st.gammas ? seg('gammaSeg', st.gammas, gs.gamma) : `<p class="muted km-note">이 실험은 γ = ${gs.gamma}로 정해져 있어요.</p>`}</div>
+        ${vi ? '' : `<div class="filter-card out-card"><h4>학습률 α <span class="muted">한 번에 Q를 얼마나 고칠까 ${jg('학습률', 'learning rate')}</span></h4>${seg('alphaSeg', st.alphas, gs.alpha)}</div>
+        <div class="filter-card out-card"><h4>탐험 ε <span class="muted">일부러 아무 데나 가 볼 비율 ${jg('탐험률', 'exploration rate')}</span></h4>${seg('epsSeg', st.epss, gs.eps)}</div>`}
         <div class="filter-card out-card"><p class="muted km-note">${vi ? '가치 = 가장 좋은 방향의 (한 걸음 보상 + γ × 다음 칸의 가치)' : 'Q ← Q + α × (받은 보상 + γ × 다음 칸의 가장 큰 Q − Q)'}</p>
           <div class="lp-actions"><button class="btn" id="btnGStep">${vi ? '한 번 퍼뜨리기' : '한 판 해 보기'}</button><button class="btn" id="btnGRun">${gs.auto ? '⏸ 멈추기' : vi ? '▶ 길이 이어질 때까지' : '▶ 자동 학습'}</button><button class="btn ghost" id="btnGReset">↺ 처음부터 <kbd>R</kbd></button></div></div>
         <div class="filter-card out-card" id="gridStats">${gridStatsHtml()}</div>
@@ -2168,7 +2340,7 @@
       </tr>` : `
       <tr data-row="${i}" class="${i === play.row ? 'sel' : ''} ${r.ok ? 'ok' : 'bad'}">
         ${ins.map((_, k) => `<td class="c-in">${r.row[k]}</td>`).join('')}
-        ${outs.map((_, k) => `<td class="c-t"><b>${r.row[ins.length + k]}</b></td><td>${bar(r.ys[k])}</td>`).join('')}${codeCell(r)}
+        ${outs.map((_, k) => `<td class="c-t${st.free ? ' editable' : ''}" ${st.free ? `data-k="${k}" title="눌러서 목표 바꾸기"` : ''}><b>${r.row[ins.length + k]}</b></td><td>${bar(r.ys[k])}</td>`).join('')}${codeCell(r)}
         <td class="mark">${r.ok ? '✓' : '✗'}</td>
       </tr>`).join('');
     const codeMap = st.latent ? `<div class="code-map"><h4>코드 지도 <span class="muted">입력마다 히든 뉴런(코드) 값으로 찍은 자리 · 잠재 공간</span></h4><canvas id="codeMap" aria-label="코드 지도"></canvas></div>` : '';
@@ -2183,20 +2355,20 @@
       const loss = t.losses[t.losses.length - 1];
       tail = `
         <div class="train-box">
-          ${st.inits ? `<div class="set-row"><span><b>시작 가중치</b> <span class="muted">바꾸면 처음부터 다시 배워요</span></span>
+          ${st.inits ? `<div class="set-row"><span><b>시작 가중치</b> <span class="muted">바꾸면 처음부터 다시 배워요 ${jg('초기화', 'initialization')}</span></span>
             <div class="seg" id="initSeg">${st.inits.map((it, i) => `<button data-i="${i}" class="${i === (t.initIdx || 0) ? 'on' : ''}">${esc(it.label)}</button>`).join('')}</div></div>` : ''}
-          <label class="set-row"><span><b>학습률</b> <span class="muted">한 번에 얼마나 고칠까</span></span>
+          <label class="set-row"><span><b>학습률</b> <span class="muted">한 번에 얼마나 고칠까 ${jg('학습률', 'learning rate')}</span></span>
             <span style="display:flex;gap:10px;align-items:center"><input type="range" id="lrRange" min="0" max="${RATES.length - 1}" step="1" value="${t.lrIdx}"><b class="wval" id="lrVal">${lr}</b></span></label>
           <div class="lp-actions">
             <button class="btn" id="btnLearn1">한 번 배우기</button>
             <button class="btn primary" id="btnAuto">${t.auto ? '⏸ 멈추기' : '▶ 자동 학습'} <kbd>Space</kbd></button>
             <div class="seg" id="trainSpeed" title="학습 배속">${LEARN_SPEEDS.map((v, i) => `<button data-i="${i}" class="${i === (t.speedIdx || 0) ? 'on' : ''}">${v}×</button>`).join('')}</div>
-            <button class="btn ghost" id="btnTrainReset">↺ 처음 가중치로 <kbd>R</kbd></button>
+            <button class="btn reset-btn ${t.done ? 'pulse' : ''}" id="btnTrainReset" title="배운 것을 지우고 시작 가중치로 돌아가요">↺ 처음 가중치로 <kbd>R</kbd></button>
           </div>
           <div class="stat-grid">
-            <div><div class="k">학습 횟수</div><div class="v">${t.epochs}</div></div>
+            <div><div class="k">학습 횟수 ${jg('에포크', 'epoch')}</div><div class="v">${t.epochs}</div></div>
             <div><div class="k">${st.loss === 'ce' ? '오차(교차 엔트로피)' : '오차(평균 제곱)'}</div><div class="v">${loss.toFixed(3)}</div></div>
-            <div><div class="k">${st.plot ? '맞은 점' : '맞은 줄'}</div><div class="v">${okN} / ${st.rows.length}</div></div>
+            <div><div class="k">${st.plot ? '맞은 점' : '맞은 줄'} ${jg('정확도', 'accuracy')}</div><div class="v">${okN} / ${st.rows.length}</div></div>
             <div><div class="k">써 본 학습률</div><div class="v">${t.rates.size}</div></div>
           </div>
           <div class="chart-wrap"><canvas id="lossChart" aria-label="오차 그래프"></canvas></div>
@@ -2206,6 +2378,7 @@
       <div class="lp-head"><h3>${st.type === 'train' ? '점 그래프 · 배우는 중' : '점 그래프'}</h3><span class="muted">점을 누르면 그 점일 때 뇌가 어떻게 반응하는지 왼쪽에 보여요. ${st.classes ? '출력 뉴런마다 그 색일 확률이고, 가장 큰 확률의 색이 뇌의 답이에요.' : '출력이 0.5 이상이면 파랑(1), 아래면 주황(0).'}</span></div>
       ${plotHtml(st, brain)}
       ${tail}` : `
+      ${sceneHtml(st, res)}
       <div class="lp-head"><h3>${st.type === 'train' ? '진리표 · 배우는 중' : '진리표'}</h3><span class="muted">줄을 누르면 그 입력일 때 뇌가 어떻게 반응하는지 왼쪽에 보여요. 출력이 0.5 이상이면 1로 읽어요.${st.latent ? ' "코드"는 그 입력일 때 히든 뉴런의 값이에요.' : ''}</span></div>
       <div class="table-scroll"><table class="truth ${many ? 'many' : ''}"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>
       ${codeMap}
@@ -2217,6 +2390,22 @@
       if (ct) ct.onchange = () => { play.showTest = ct.checked; if (!play.showTest && play.row >= st.rows.length) play.row = 0; renderLogicPanel(); };
     }
     $$('#logicPanel tr[data-row]').forEach((tr) => (tr.onclick = () => { play.row = +tr.dataset.row; renderLogicPanel(); }));
+    // 장면의 스위치: 누르면 그 입력 조합의 줄로 옮겨 가서, 뇌와 물건이 어떻게 반응하는지 바로 보인다
+    $$('#logicPanel .sc-sw').forEach((b) => (b.onclick = () => {
+      const k = +b.dataset.k, cur = st.rows[play.row].slice(0, ins.length);
+      cur[k] = cur[k] ? 0 : 1;
+      const i = st.rows.findIndex((r) => cur.every((v, j) => r[j] === v));
+      if (i >= 0) { play.row = i; audio.sfx.click(); renderLogicPanel(); }
+    }));
+    // 연구실 자유 실험: 목표 칸을 눌러 0과 1을 바꾼다(나만의 진리표)
+    if (st.free) $$('#logicPanel td.c-t[data-k]').forEach((td) => (td.onclick = (e) => {
+      e.stopPropagation();
+      const row = st.rows[+td.parentNode.dataset.row], j = ins.length + +td.dataset.k;
+      row[j] = row[j] ? 0 : 1;
+      if (st.type === 'train') { play.train.losses.push(sim.lossOf(st, play.train.brain)); }
+      audio.sfx.click();
+      renderLogicPanel();
+    }));
     const ck = $('#btnCheck');
     if (ck) ck.onclick = checkLogic;
     if (st.type === 'train') {
@@ -2231,6 +2420,34 @@
     }
   }
   // 입력에서 직접 선을 받는 히든 뉴런 수(= 코드의 칸 수)
+  // ---- 진리표 장면: 스위치(입력)와 물건(출력). 지금 고른 줄의 입력으로 뇌가 낸 답을 물건이 보여 준다 ----
+  function sceneObj(kind, on) {
+    const c = on ? 'var(--gold)' : 'var(--line-3)', glow = on ? '<circle cx="40" cy="34" r="30" fill="var(--gold)" opacity=".18"/>' : '';
+    const body = {
+      lamp: `${glow}<circle cx="40" cy="32" r="17" fill="${on ? '#ffd75e' : 'var(--surface-2)'}" stroke="${c}" stroke-width="3"/><rect x="32" y="50" width="16" height="12" rx="3" fill="var(--line-3)"/>${on ? '<path d="M40 4v6M14 14l5 5M66 14l-5 5M8 34h6M66 34h6" stroke="var(--gold)" stroke-width="3" stroke-linecap="round"/>' : ''}`,
+      bell: `${glow}<path d="M22 50c4-4 4-10 4-18a14 14 0 0 1 28 0c0 8 0 14 4 18z" fill="${on ? '#ffd75e' : 'var(--surface-2)'}" stroke="${c}" stroke-width="3"/><circle cx="40" cy="56" r="4" fill="${c}"/>${on ? '<path d="M12 22q-5 10 0 20M68 22q5 10 0 20" stroke="var(--gold)" stroke-width="3" fill="none" stroke-linecap="round"/>' : ''}`,
+      alarm: `${on ? '<circle cx="40" cy="34" r="30" fill="#ff5d73" opacity=".2"/>' : ''}<path d="M24 52v-16a16 16 0 0 1 32 0v16z" fill="${on ? '#ff5d73' : 'var(--surface-2)'}" stroke="${on ? '#ff5d73' : 'var(--line-3)'}" stroke-width="3"/><rect x="18" y="52" width="44" height="8" rx="3" fill="var(--line-3)"/>${on ? '<path d="M40 6v8M14 16l6 6M66 16l-6 6" stroke="#ff5d73" stroke-width="3" stroke-linecap="round"/>' : ''}`,
+      safe: `<rect x="14" y="12" width="52" height="46" rx="6" fill="var(--surface-2)" stroke="${on ? 'var(--ok)' : 'var(--line-3)'}" stroke-width="3"/>${on ? '<path d="M14 12l-8 6v46l8-6" fill="var(--ok)" opacity=".35"/><text x="40" y="41" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ok)">OPEN</text>' : '<circle cx="40" cy="35" r="9" fill="none" stroke="var(--line-3)" stroke-width="3"/><path d="M40 26v-4" stroke="var(--line-3)" stroke-width="3"/>'}`,
+      door: `<rect x="18" y="8" width="44" height="54" rx="3" fill="var(--surface-2)" stroke="var(--line-3)" stroke-width="3"/>${on ? '<path d="M18 8l18 6v54l-18-6z" fill="var(--ok)" opacity=".55"/>' : '<rect x="18" y="8" width="44" height="54" rx="3" fill="var(--line-2)"/><circle cx="54" cy="36" r="3" fill="var(--text)"/>'}`,
+      sign: `${glow}<rect x="8" y="20" width="64" height="30" rx="8" fill="${on ? 'var(--ok)' : 'var(--surface-2)'}" stroke="${on ? 'var(--ok)' : 'var(--line-3)'}" stroke-width="3"/><circle cx="24" cy="35" r="6" fill="${on ? '#fff' : 'var(--line-3)'}"/>`,
+      digit: `<rect x="16" y="8" width="48" height="54" rx="6" fill="var(--screen)" stroke="var(--line-3)" stroke-width="3"/><text x="40" y="49" text-anchor="middle" font-size="36" font-weight="700" fill="${on ? '#7ee081' : '#5b6170'}" font-family="var(--mono)">${on ? 1 : 0}</text>`,
+    }[kind] || '';
+    return `<svg viewBox="0 0 80 70" class="sc-svg" aria-hidden="true">${body}</svg>`;
+  }
+  function sceneHtml(st, res) {
+    const sc = SCENES[(st.src || st).id];
+    if (!sc || st.plot || !res.rows[play.row]) return '';
+    const ins = st.inputs || ['inA', 'inB'], r = res.rows[play.row];
+    const sw = sc.ins.map((name, k) => { const on = r.row[k] === 1; return `<button class="sc-sw ${on ? 'on' : ''}" data-k="${k}" title="눌러서 켜고 끄기"><span class="knob"></span><b>${esc(name)}</b><em>${on ? '켜짐' : '꺼짐'}</em></button>`; }).join('');
+    const objs = sc.outs.map((o, k) => {
+      const on = r.ys[k] >= 0.5, want = r.row[ins.length + k] === 1;
+      return `<div class="sc-obj ${on === want ? 'ok' : 'bad'}">${sceneObj(o.kind, on)}<b>${esc(o.name)}</b><span>${on === want ? '✓ 맞아요' : want ? '✗ 켜져야 해요' : '✗ 꺼져야 해요'}</span></div>`;
+    }).join('');
+    const v = r.row;
+    const extra = sc.show === 'sum' ? `<div class="sc-extra">${v[0]} + ${v[1]} = ${v[0] + v[1]}</div>`
+      : sc.show === 'compare' ? `<div class="sc-extra">AB = ${2 * v[0] + v[1]}, CD = ${2 * v[2] + v[3]}</div>` : '';
+    return `<div class="scene"><p class="sc-story">${esc(sc.story)}</p><div class="sc-row"><div class="sc-sws">${sw}</div><div class="sc-arrow">→ 뇌 →</div><div class="sc-objs">${objs}</div></div>${extra}<p class="sc-tip muted">스위치를 눌러 바꿔 보세요. 뇌의 선을 따라 신호가 흐르고, 물건이 뇌의 답대로 움직여요.</p></div>`;
+  }
   function codeWidth(st, brain) {
     const ins = st.inputs || [];
     return new Set(brain.synapses.filter((x) => ins.includes(x.from) && /^h\d+$/.test(x.to)).map((x) => x.to)).size;
@@ -2276,7 +2493,7 @@
     const testName = st.testName || '시험 데이터';
     stageResult({ status: ok ? 'success' : 'fail', testAcc, confidence }, brain, (isNew) => `
       <div><div class="k">${st.classes ? '맞은 점' : '훈련 데이터'}</div><div class="v">${trainN}/${st.rows.length}</div></div>
-      ${st.classes ? `<div><div class="k">정답 확률 평균</div><div class="v">${Math.round(confidence * 100)}%</div></div>` : ''}
+      ${st.classes ? `<div><div class="k">정답 확률 평균 ${jg('신뢰도', 'confidence')}</div><div class="v">${Math.round(confidence * 100)}%</div></div>` : ''}
       ${recall != null ? `<div><div class="k">재현율(파랑 찾음)</div><div class="v">${Math.round(recall * 100)}%</div></div>` : ''}
       ${st.test ? `<div><div class="k">${esc(testName)}</div><div class="v">${testN}/${st.test.length}</div></div>` : ''}
       <div><div class="k">시냅스</div><div class="v">${brain.synapses.length}${isNew.syn ? '<span class="new-badge">NEW</span>' : ''}</div></div>
@@ -2301,7 +2518,7 @@
       renderLogicPanel();
       audio.sfx.success();
       setTimeout(() => stageResult({ status: 'success', epochs: t.epochs, rates: t.rates.size }, t.brain, () => `
-        <div><div class="k">학습 횟수</div><div class="v">${t.epochs}</div></div>
+        <div><div class="k">학습 횟수 ${jg('에포크', 'epoch')}</div><div class="v">${t.epochs}</div></div>
         <div><div class="k">마지막 오차</div><div class="v">${t.losses[t.losses.length - 1].toFixed(3)}</div></div>
         <div><div class="k">써 본 학습률</div><div class="v">${t.rates.size}가지</div></div>`), 350);
       return;
@@ -2604,30 +2821,60 @@
   // ===================================================================
   // 개념 노트
   // ===================================================================
+  // 문제에서 "개념 노트"를 누르면 그 개념 카드로 내려가서 잠깐 빛나게 한다
+  const termIdx = (k) => (CONCEPT_TERMS[k] || []).map((t) => GLOSSARY.findIndex((g) => g.term === t)).filter((i) => i >= 0);
+  function flash(el) { el.classList.remove('focus'); void el.offsetWidth; el.classList.add('focus'); }
+  function focusNote(k) {
+    const card = document.getElementById('note-' + k);
+    if (!card) return;
+    // 기본 용어에서도 이 개념과 관련된 용어에 표시를 붙인다
+    const rel = termIdx(k);
+    $$('#view-notes .term').forEach((el) => el.classList.toggle('rel', rel.includes(+el.dataset.i)));
+    const note = $('#termRelNote');
+    if (note) { note.innerHTML = rel.length ? `<b>${esc(CONCEPTS[k].title)}</b> — 관련 용어 ${rel.length}개에 표시를 붙였어요.` : ''; note.classList.toggle('hidden', !rel.length); }
+    const rs = card.querySelector('.rel-stages');
+    if (rs) rs.open = true;
+    card.scrollIntoView({ block: 'center' });
+    flash(card);
+  }
   function renderNotes() {
     const open = CONCEPT_ORDER.filter(conceptOpen).length;
     const cards = CONCEPT_ORDER.map((k) => {
       const c = CONCEPTS[k];
       const isOpen = conceptOpen(k);
-      const st = STAGES.find((s) => s.concept === k);
-      const how = st ? `${st.code} · ${st.title}을 깨면 열려요` : '대결을 한 판 하면 열려요';
-      return `<article class="panel note-card ${isOpen ? '' : 'locked'}">
+      const rel = conceptStages(k), st = rel[0], left = conceptLeft(k);
+      const how = st ? (rel.length > 1 ? `${left.map((x) => x.code).join(', ')}을 모두 깨면 열려요` : `${st.code} · ${st.title}을 깨면 열려요`) : '대결을 한 판 하면 열려요';
+      return `<article class="panel note-card ${isOpen ? '' : 'locked'}" id="note-${k}">
         <div class="top">${conceptGlyph(k)}<div><div class="eyebrow">${st ? `${trackOf(st).title} · ${st.code}` : '대결'}</div><h3>${isOpen ? esc(c.title) : '???'}</h3><div class="line">${isOpen ? esc(c.line) : esc(how)}</div></div></div>
+        ${isOpen && c.easy ? `<div class="b-easy"><b>쉽게 말하면</b>${esc(c.easy)}</div>` : ''}
         <div class="two">
           <div class="b-brain"><b>뇌에서는</b>${isOpen ? esc(c.brain) : '아직 발견하지 못한 개념입니다. 실험을 깨면 이 자리에 설명이 나타납니다.'}</div>
           <div class="b-ai"><b>AI에서는</b>${isOpen ? esc(c.ai) : '아직 발견하지 못한 개념입니다.'}</div>
         </div>
+        ${termIdx(k).length ? `<div class="rel-terms"><span class="muted">관련 용어</span>${termIdx(k).map((i) => `<button class="chip term-link" data-term="${i}">${esc(GLOSSARY[i].term)}</button>`).join('')}</div>` : ''}
         ${isOpen && (CONCEPT_PAPERS[k] || []).length ? `<details class="papers"><summary>관련 논문 보러 가기 (${CONCEPT_PAPERS[k].length})</summary><ul class="paper-list">${paperItems(CONCEPT_PAPERS[k])}</ul></details>` : ''}
+        ${rel.length ? `<details class="papers rel-stages"><summary>관련 문제 보러 가기 (${rel.length})</summary><div class="rel-list">${rel.map((x) => isUnlockedSt(x)
+          ? `<button class="btn sm ${cleared(x.id) ? '' : 'primary'}" data-go="stage/${x.id}">${x.code} · ${esc(x.title)}${cleared(x.id) ? ' ✓' : ''}</button>`
+          : `<button class="btn sm" disabled title="이전 문제를 깨거나, 설정에서 '모든 장 해금'을 켜면 열려요">${x.code} · ${esc(x.title)} · 잠김</button>`).join('')}</div></details>` : ''}
       </article>`;
     }).join('');
-    const terms = GLOSSARY.map((g) => `<div class="term"><div class="term-head"><b>${esc(g.term)}</b><span>${esc(g.en)}</span></div><p>${esc(g.def)}</p></div>`).join('');
+    const terms = GLOSSARY.map((g, i) => `<div class="term" id="term-${i}" data-i="${i}"><span class="term-rel">이 개념의 용어</span><div class="term-head"><b>${esc(g.term)}</b><span>${esc(g.en)}</span></div><p>${esc(g.def)}</p></div>`).join('');
     $('#view-notes').innerHTML = `
       <div class="section-head" style="margin-top:6px"><div><div class="eyebrow">개념 노트</div><h2>기본 용어</h2>
-      <p class="muted" style="margin:6px 0 0;max-width:760px">실험을 하다 모르는 말이 나오면 여기서 찾아보세요. 언제나 열려 있습니다.</p></div></div>
+      <p class="muted" style="margin:6px 0 0;max-width:760px">실험을 하다 모르는 말이 나오면 여기서 찾아보세요. 언제나 열려 있습니다.</p>
+      <p class="term-rel-note hidden" id="termRelNote"></p></div></div>
       <div class="glossary">${terms}</div>
       <div class="section-head"><div><h2>발견한 개념 ${open} / ${CONCEPT_ORDER.length}</h2>
-      <p class="muted" style="margin:6px 0 0;max-width:760px">실험을 깨면 한 장씩 열립니다. 직접 만든 회로가 실제 뇌에서는 무엇이고, 인공지능에서는 무엇인지 양쪽에서 비춰 봅니다.</p></div></div>
+      <p class="muted" style="margin:6px 0 0;max-width:760px">한 개념을 다루는 문제를 모두 깨면 그 개념 카드가 열립니다. 직접 만든 회로가 실제 뇌에서는 무엇이고, 인공지능에서는 무엇인지 양쪽에서 비춰 봅니다.</p></div></div>
       <div class="notes-grid">${cards}</div>`;
+    // 개념 카드의 "관련 용어"를 누르면 위쪽 기본 용어로 가서 빛나게 한다
+    $$('#view-notes .term-link').forEach((b) => (b.onclick = () => {
+      const t = document.getElementById('term-' + b.dataset.term);
+      if (!t) return;
+      t.classList.add('rel');
+      t.scrollIntoView({ block: 'center' });
+      flash(t);
+    }));
   }
 
   // ===================================================================
@@ -2665,14 +2912,14 @@
             <span><kbd>Esc</kbd></span><span>창 닫기 · 선택 풀기</span>
           </div>
         </fieldset>
-        <fieldset><legend>개발</legend>
-          <label class="set-row"><span>개발자 모드 (모든 실험·개념·숨은 상대 열기)</span><input type="checkbox" data-set="dev" ${s.dev ? 'checked' : ''}></label>
+        <fieldset><legend>진행</legend>
+          <label class="set-row"><span>모든 장 해금 (모든 문제·개념 카드·숨은 상대 열기)</span><input type="checkbox" data-set="dev" ${s.dev ? 'checked' : ''}></label>
           <div class="set-row"><span>기능 안내(튜토리얼) 다시 보기</span><button class="btn sm" id="replayTour">다시 보기</button></div>
           <div class="set-row"><span class="muted">별·기록·저장한 뇌를 모두 지웁니다.</span><button class="btn sm danger" id="resetAll">기록 초기화</button></div>
         </fieldset>
       </div>
       <div class="modal-actions"><button class="btn primary" data-close data-autofocus>닫기</button></div>`, () => {
-      // 개발자 모드 등이 바뀌었을 수 있으니 목록 화면만 다시 그린다(진행 중인 실험·대결은 건드리지 않는다)
+      // 모든 장 해금 등이 바뀌었을 수 있으니 목록 화면만 다시 그린다(진행 중인 실험·대결은 건드리지 않는다)
       if (view === 'home' || view === 'notes') route();
       else if (view === 'versus' && vs.state === 'setup') renderVersus();
     });
@@ -2714,6 +2961,15 @@
     $('#themeLabel').textContent = dark ? '화이트' : '블랙';
     if (view === 'home') hero.attach($('#heroCanvas'));
   }
+  // 언어 고르기: 자동(있는 곳·브라우저 언어) 또는 직접 고른 언어. 바꾸면 페이지를 다시 연다
+  (function setupLang() {
+    const sel = $('#langSel'), I = SA.i18n;
+    if (!sel || !I) return;
+    const autoName = { ko: '자동', en: 'Auto', ja: '自動' }[I.lang];
+    sel.innerHTML = `<option value="auto">${autoName} (${I.LANGS[I.lang]})</option>` + Object.entries(I.LANGS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+    sel.value = I.why === 'saved' ? I.lang : 'auto';
+    sel.onchange = () => { if (sel.value === 'auto') I.auto(); else I.setLang(sel.value); };
+  })();
   $('#btnTheme').onclick = () => { S.settings.theme = S.settings.theme === 'dark' ? 'light' : 'dark'; save(); applyTheme(); };
   applyTheme();
 
@@ -2768,7 +3024,7 @@
         { target: q('#inspector'), title: '직접 해 보기: 다시 올리기', text: '선을 골라 세기를 0.5 이상(예: 1)으로 올려서 진리표의 모든 줄을 ✓로 만들어 보세요.', wait: () => sim.evalLogic(play.cfg, editor.getBrain()).ok },
         { target: q('#view-play .panel-title .tools'), title: '되돌리기와 지우기', text: '↶ 되돌리기(Ctrl+Z), ↷ 다시 하기(Ctrl+Y), 비우기. 선 하나를 지우려면 선을 우클릭하거나, 골라서 Delete를 누르세요.' },
         { target: neuron('h1'), title: '활성화 함수', text: '히든·출력 뉴런을 클릭하면 아래에 설명과 "활성화 함수"가 나와요. 3장 생명체 길찾기부터는 ReLU, 시그모이드, 계단 같은 함수를, 연구실에서는 AND·OR·NOT·XOR 게이트와 소프트맥스까지 직접 넣을 수 있어요.' },
-        { target: q('#brief'), title: '힌트와 정답', text: '막히면 "힌트 보기"를 누르세요. 힌트는 개념 → 값 조절 → 거의 답, 세 단계예요. 다 보면 "정답 보기"가 나와요.' },
+        { target: q('#hintBox'), title: '힌트와 정답', text: '막히면 "힌트 보기"를 누르세요. 힌트는 개념 → 값 조절 → 거의 답, 세 단계예요. 다 보면 "정답 보기"가 나와요.' },
         { target: q('#view-play .play-head .goal'), title: '목표와 별', text: '노란 칩이 이 실험의 목표, 옆의 칩들은 별 조건이에요. 목표를 채우면 별 1개, 조건까지 채우면 별이 더 생겨요.' },
         { target: q('.stage-nav'), title: '이전 · 다음', text: '실험 사이를 오가는 버튼이에요. 다음 실험은 지금 실험을 깨야 열려요.' },
         { target: q('.nav'), title: '메뉴', text: 'AI 배우기: 모든 실험 목록(분류 태그로 AI 개념/사고력만 골라 볼 수 있어요) · 연구실: 직접 잇거나 강화학습으로 뇌 만들기 · 대결: 만든 뇌끼리 겨루기 · 개념 노트: 기본 용어와 개념 카드.' },

@@ -1,6 +1,6 @@
 /* 시냅스 아레나 — 배경
  * 페이지 뒤에서 점과 선이 천천히 떠다닌다. 마우스가 가까이 오면 점이 살짝 비켜나고 가는 선으로 이어진다.
- * 과하지 않게: 점은 적게, 색은 옅게, 힘은 약하게. 모션 줄이기 설정이면 멈춰 있는다.
+ * 점은 넉넉히, 색은 또렷하게, 힘은 약하게. 모션 줄이기 설정이면 멈춰 있는다.
  */
 (function () {
   'use strict';
@@ -8,7 +8,7 @@
   if (!cv) return;
   const g = cv.getContext('2d');
   const reduce = globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const LINK = 130;      // 점끼리 선을 긋는 거리
+  const LINK = 140;      // 점끼리 선을 긋는 거리
   const REACH = 150;     // 마우스가 영향을 주는 거리
   let W = 0, H = 0, dpr = 1, pts = [];
   let mouse = { x: -9999, y: -9999, on: false };
@@ -18,20 +18,20 @@
   function readColors() {
     const dark = document.documentElement.dataset.theme === 'dark';
     colors = dark
-      ? { dot: 'rgba(127,167,220,0.32)', line: '127,167,220', cursor: '210,160,58', lineA: 0.16 }
-      : { dot: 'rgba(46,94,158,0.28)', line: '46,94,158', cursor: '169,118,14', lineA: 0.12 };
+      ? { dot: 'rgba(140,180,232,0.62)', line: '140,180,232', cursor: '220,170,64', lineA: 0.3 }
+      : { dot: 'rgba(46,94,158,0.5)', line: '46,94,158', cursor: '169,118,14', lineA: 0.24 };
   }
   function resize() {
     dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     W = innerWidth; H = innerHeight;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-    const want = Math.max(28, Math.min(80, Math.round((W * H) / 24000)));
+    const want = Math.max(50, Math.min(170, Math.round((W * H) / 11000)));
     while (pts.length < want) pts.push(spawn());
     pts.length = want;
   }
   function spawn() {
     const a = Math.random() * Math.PI * 2, sp = 6 + Math.random() * 10; // 초당 픽셀
-    return { x: Math.random() * W, y: Math.random() * H, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, ox: 0, oy: 0, r: 1.3 + Math.random() * 1.2 };
+    return { x: Math.random() * W, y: Math.random() * H, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, ox: 0, oy: 0, r: 1.6 + Math.random() * 1.5 };
   }
 
   let last = performance.now();

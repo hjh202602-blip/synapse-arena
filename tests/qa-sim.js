@@ -360,6 +360,42 @@ console.log('■ 도전 문제와 15장 힌트에 적은 말이 맞는지');
   check(tr(0.1) === 3 && tr(0.5) === 2, 'F4 조금씩 다르게: 0.1이면 3번, 0.5면 2번');
 }
 
+console.log('■ 준비 문제와 길잡이');
+{
+  const get = (id) => ALL.find((x) => x.id === id);
+  const s1b = get('s1b');
+  const ok = (l) => sim.runHeadless(s1b, [B(`bias>motorL:${l}`, 'bias>motorR:1')]);
+  check(ok(0.7).status === 'success' && ok(0.7).t <= 3 && allStars(sim.evalStars(s1b, ok(0.7), s1b.solution)), `s1b 정답(0.7/1) → ${ok(0.7).t.toFixed(1)}초, 별 3개`);
+  check([0.6, 0.7, 0.8, 0.9].every((l) => ok(l).status === 'success') && ok(0.6).t <= 3, 's1b 왼바퀴 0.6~0.9면 닿고, 0.6~0.7은 3초 안(힌트와 일치)');
+  check([0, 0.3, 0.5, 1].every((l) => ok(l).status !== 'success'), 's1b 0.5 이하나 1(똑바로)은 못 닿음');
+  check(sim.runHeadless(s1b, [B()]).status !== 'success' && sim.runHeadless(s1b, [B('bias>motorL:1', 'bias>motorR:0.7')]).status !== 'success', 's1b 빈 뇌·반대로 휘기는 못 깸');
+  const hid = get('L4b');
+  check(!sim.evalLogic(hid, B('inA>h1:0.7', 'h1>out:0.7')).ok && sim.evalLogic(hid, B('inA>h1:1', 'h1>out:0.5')).ok, 'L4b 두 세기의 곱이 0.5 이상이어야 함(0.7×0.7은 모자람)');
+  check(hid.noSkip && get('L4c').noSkip, 'L4b·L4c는 입력을 히든 뉴런에만 이을 수 있음');
+  const W = get('T3b'), tr = (lr) => { const b = JSON.parse(JSON.stringify(W.init)); for (let e = 1; e <= 200; e++) { sim.trainEpoch(W, b, lr); if (sim.evalLogic(W, b).ok) return e; } return null; };
+  check(tr(0.02) === 31 && tr(0.1) === 4 && tr(0.3) === 8 && tr(1) === null, 'T3b 학습률 0.02→31번, 0.1→4번, 0.3→8번, 1→못 배움(힌트와 일치)');
+  const first = get('first');
+  const fw = (b) => sim.runHeadless(first, [b]);
+  check(ALL[0] === first && fw(first.startBrain).status === 'success' && fw(first.startBrain).t <= 15 && allStars(sim.evalStars(first, fw(first.startBrain), first.startBrain)), `첫 문제: 이미 이어진 뇌로 ▶ 실행만 해도 성공, 별 3개 (${fw(first.startBrain).t.toFixed(1)}초)`);
+  check(fw(B()).status !== 'success' && fw(B('eyeL>motorL:2.5', 'eyeR>motorR:2.5', 'bias>motorL:0.4', 'bias>motorR:0.4')).creatures[0].eaten === 0, '첫 문제: 빈 뇌·같은 쪽으로 이은 눈은 못 먹음(힌트와 일치)');
+  { const t = fw(B('eyeL>motorR:1', 'eyeR>motorL:1', 'bias>motorL:0.4', 'bias>motorR:0.4')).t; check(t > 18 && t < 20.5, `첫 문제: 눈 선 1이면 19초쯤 (${t.toFixed(1)}초)`); }
+  const SC = content.SCENES;
+  check(ALL.filter((x) => x.chapter <= 2 && x.type === 'logic').every((x) => SC[x.id]), '0~2장 진리표 문제마다 장면이 있음');
+  check(Object.keys(SC).every((id) => { const st = get(id); return st && SC[id].ins.length === (st.inputs || ['inA', 'inB']).length && SC[id].outs.length === (st.outputs || ['out']).length; }), '장면의 스위치·물건 수가 문제의 입력·출력 수와 같음');
+  check(Object.keys(SC).every((id) => { const st = get(id), n = (st.inputs || ['inA', 'inB']).length; return st.rows.length === 2 ** n && new Set(st.rows.map((r) => r.slice(0, n).join(''))).size === 2 ** n; }), '장면이 있는 문제는 모든 스위치 조합이 진리표에 있음(스위치로 어느 줄이든 갈 수 있음)');
+  check(ALL.every((x) => x.todo), `모든 문제(${ALL.length}개)에 "지금 할 일"이 있음`);
+  check(ALL.every((x) => (content.HOW_TO[content.howKey(x)] || []).length === 3), '모든 문제에 그 화면의 조작 순서가 있음');
+  check(Object.keys(content.CONCEPTS).every((k) => content.CONCEPTS[k].easy), '모든 개념 카드에 "쉽게 말하면"이 있음');
+  { const T = content.CONCEPT_TERMS, G = new Set(content.GLOSSARY.map((g) => g.term));
+    check(Object.keys(content.CONCEPTS).every((k) => (T[k] || []).length && T[k].every((t) => G.has(t))), '모든 개념 카드에 관련 기본 용어가 있고, 모두 용어 목록에 있음'); }
+  const c2b = get('C2b');
+  check(c2b.noSkip && !sim.evalLogic(c2b, B('inX>h1:1', 'inY>h1:1', 'bias>h1:-0.5', 'h1>out:0.45')).ok, 'C2b 히든 → 출력이 0.5보다 작으면 못 깸(힌트와 일치)');
+  const v0 = get('V0');
+  check(!sim.evalVision(v0, { filters: [{ w: [0, 0, 0, 0, 1, 0, 0, 0, 0], b: -1 }] }).ok, 'V0 편향 -1이면 켜진 칸도 꺼져서 틀림(힌트와 일치)');
+  const m0 = get('M0');
+  check(!sim.evalSeq(m0, B('inA>out:0.4')).ok && sim.evalSeq(m0, B('inA>out:0.5')).ok, 'M0 입력 A → 출력 0.5 이상이어야 함(힌트와 일치)');
+}
+
 console.log('■ 태그와 검색 데이터');
 {
   check(ALL.every((st) => Array.isArray(st.tags) && st.tags.length >= 2), '모든 문제에 태그가 2개 이상');
