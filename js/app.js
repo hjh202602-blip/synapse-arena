@@ -85,6 +85,13 @@
     modalClose = onClose || null;
     const back = root.firstElementChild;
     back.addEventListener('mousedown', (e) => { if (e.target === back) closeModal(); });
+    // 창 안이 더 굴러갈 데가 없거나 창 밖에서 굴리면 막는다(뒤 화면은 그대로)
+    back.addEventListener('wheel', (e) => {
+      const m = back.firstElementChild;
+      if (!m.contains(e.target)) { e.preventDefault(); return; }
+      const up = e.deltaY < 0;
+      if (m.scrollHeight <= m.clientHeight + 1 || (up && m.scrollTop <= 0) || (!up && m.scrollTop + m.clientHeight >= m.scrollHeight - 1)) e.preventDefault();
+    }, { passive: false });
     const first = root.querySelector('[data-autofocus]') || root.querySelector('.modal-actions .btn.primary') || root.querySelector('.modal-actions button');
     if (first) first.focus({ preventScroll: true });
     root.querySelector('.modal').scrollTop = 0;
@@ -506,6 +513,7 @@
     play.mode = 'stage';
     play.cfg = st;
     play.hints = 0;
+    play.answered = false;
     play.row = st.rows ? (st.plot ? 0 : st.rows.length - 1) : 0;
     play.showTest = false;
     const train = st.type === 'train' || st.type === 'reward';
@@ -609,6 +617,7 @@
     const arena = LAB_ARENAS.find((a) => a.id === S.lab.arena) || LAB_ARENAS[0];
     play.cfg = arena;
     play.hints = 0;
+    play.answered = false;
     setSideMode(null);
     if (play.labMode === 'rl') { startLabRl(false); return; }
     editor.setConfig({ sensors: LAB_SENSORS, outputs: ['motorL', 'motorR'], maxHidden: 6, fixedHidden: 0, minHidden: 2, readOnly: false, funcs: FUNCS_ALL, noSkip: false, fixedFn: null, hiddenPos: null });
@@ -1186,7 +1195,8 @@
   // 실험 결과 창(아레나·진리표·학습 공통). wl = {status, t, epochs, rates} 같은 결과 요약
   function stageResult(wl, brain, statsHtml, failText) {
     const st = play.cfg;
-    const stars = sim.evalStars(st, wl, brain);
+    const answered = play.answered && wl.status === 'success';
+    const stars = answered ? [true, true, true] : sim.evalStars(st, wl, brain);
     const prev = S.progress[st.id] || { stars: [false, false, false] };
     const success = wl.status === 'success';
     const isNew = { time: false, syn: false };
@@ -1331,7 +1341,7 @@
         <div class="seg" id="sigSeg">${SIGMAS.map((v, i) => `<button data-i="${i}" class="${i === rl.sigmaIdx ? 'on' : ''}">${v}</button>`).join('')}</div></div>
       <div class="lp-actions">
         <button class="btn primary" id="btnLearn"></button>
-        <button class="btn ghost" id="btnLearnReset">↺ 처음부터</button>
+        <button class="btn reset-btn" id="btnLearnReset">↺ 처음부터</button>
         <div class="seg" id="learnSpeed" title="학습 배속">${LEARN_SPEEDS.map((v, i) => `<button data-i="${i}" class="${i === rl.speedIdx ? 'on' : ''}">${v}×</button>`).join('')}</div>
       </div>
       <div class="muted rl-status" id="rlStatus"></div>
@@ -1699,8 +1709,8 @@
           <div class="seg" id="kSeg">${[1, 2, 3, 4, 5, 6].map((k) => `<button data-k="${k}" class="${k === km.k ? 'on' : ''}">${k}</button>`).join('')}</div></div>` : ''}
         ${st.stepper ? `<div class="filter-card out-card"><h4>k-평균 한 걸음</h4>
           <ol class="km-steps"><li><b>묶기</b> 각 점은 가장 가까운 중심의 색을 받는다.</li><li><b>옮기기</b> 각 중심은 자기 색 점들의 한가운데(평균)로 간다.</li></ol>
-          <div class="lp-actions"><button class="btn" id="btnKmStep">한 걸음</button><button class="btn" id="btnKmRun">${km.auto ? '⏸ 멈추기' : '▶ 멈출 때까지'}</button><button class="btn ghost" id="btnKmReset">↺ 처음 자리로 <kbd>R</kbd></button></div></div>`
-        : `<div class="filter-card out-card"><div class="lp-actions"><button class="btn ghost" id="btnKmReset">↺ 처음 자리로 <kbd>R</kbd></button></div></div>`}
+          <div class="lp-actions"><button class="btn" id="btnKmStep">한 걸음</button><button class="btn" id="btnKmRun">${km.auto ? '⏸ 멈추기' : '▶ 멈출 때까지'}</button><button class="btn reset-btn" id="btnKmReset">↺ 처음 자리로 <kbd>R</kbd></button></div></div>`
+        : `<div class="filter-card out-card"><div class="lp-actions"><button class="btn reset-btn" id="btnKmReset">↺ 처음 자리로 <kbd>R</kbd></button></div></div>`}
         <div class="filter-card out-card" id="kmStats">${kmStatsHtml()}</div>
         <div class="filter-card out-card km-neuron"><h4>중심 = 뉴런</h4><p class="muted">중심 하나는 가중치 두 개(x, y)를 가진 뉴런과 같아요. 점이 들어오면 가장 가까운 뉴런 하나만 이겨서 켜져요(승자 독식). 그래서 k-평균은 서로 경쟁하는 뉴런들이 배우는 것과 같아요.</p></div>
       </div>`;
@@ -1904,7 +1914,7 @@
         <div class="filter-card out-card"><h4>최적화 방법 ${jg('옵티마이저', 'optimizer')}${st.opts.length > 1 ? '' : ' · 경사 하강'}</h4>${st.opts.length > 1 ? seg('optSeg', st.opts, d.o.opt, (v) => OPT_NAME[v]) : ''}<p class="muted km-note">${esc(OPT_DESC[d.o.opt])}</p></div>
         ${d.o.opt === 'momentum' ? `<div class="filter-card out-card"><h4>관성 β <span class="muted">지난 속도를 얼마나 기억할까 ${jg('모멘텀 계수', 'momentum')}</span></h4>${seg('betaSeg', st.betas, d.o.beta, (v) => v)}</div>` : ''}
         <div class="filter-card out-card"><h4>학습률 <span class="muted">한 걸음의 크기 ${jg('학습률', 'learning rate')}</span></h4>${seg('lrSeg', st.lrs, d.o.lr, (v) => v)}</div>
-        <div class="filter-card out-card"><div class="lp-actions"><button class="btn" id="btnDStep">한 걸음</button><button class="btn" id="btnDRun">${d.auto ? '⏸ 멈추기' : '▶ 멈출 때까지'}</button><button class="btn ghost" id="btnDReset">↺ 처음으로 <kbd>R</kbd></button></div></div>
+        <div class="filter-card out-card"><div class="lp-actions"><button class="btn" id="btnDStep">한 걸음</button><button class="btn" id="btnDRun">${d.auto ? '⏸ 멈추기' : '▶ 멈출 때까지'}</button><button class="btn reset-btn ${d.s.t && !d.auto ? 'pulse' : ''}" id="btnDReset" title="공을 출발점(처음 가중치)으로 되돌려요">↺ 처음 가중치로 <kbd>R</kbd></button></div></div>
         <div class="filter-card out-card" id="descStats">${descStatsHtml()}</div>
       </div>`;
     const change = (fn) => { fn(); play.desc = Object.assign(newDesc(st, play.desc), { o: d.o }); renderDescLeft(); renderDescRight(); };
@@ -1919,12 +1929,15 @@
     };
     $('#btnDRun').onclick = () => {
       const dd = play.desc;
-      if (dd.done) { toast(DONE_TOAST[dd.done] + ' (↺ 처음으로)'); return; }
+      if (dd.done) { toast(DONE_TOAST[dd.done] + ' (↺ 처음 가중치로)'); return; }
       dd.auto = !dd.auto; dd.acc = 0; renderDescLeft();
     };
     $('#btnDReset').onclick = descReset;
   }
-  function descRefresh() { drawDesc(); drawFit(); const s = $('#descStats'); if (s) s.innerHTML = descStatsHtml(); }
+  function descRefresh() {
+    drawDesc(); drawFit(); const s = $('#descStats'); if (s) s.innerHTML = descStatsHtml();
+    const b = $('#btnDReset'); if (b) b.classList.toggle('pulse', !!play.desc.s.t && !play.desc.auto);
+  }
   function renderDescRight() {
     const st = play.cfg, box = $('#logicPanel');
     box.innerHTML = `
@@ -2114,7 +2127,7 @@
         ${vi ? '' : `<div class="filter-card out-card"><h4>학습률 α <span class="muted">한 번에 Q를 얼마나 고칠까 ${jg('학습률', 'learning rate')}</span></h4>${seg('alphaSeg', st.alphas, gs.alpha)}</div>
         <div class="filter-card out-card"><h4>탐험 ε <span class="muted">일부러 아무 데나 가 볼 비율 ${jg('탐험률', 'exploration rate')}</span></h4>${seg('epsSeg', st.epss, gs.eps)}</div>`}
         <div class="filter-card out-card"><p class="muted km-note">${vi ? '가치 = 가장 좋은 방향의 (한 걸음 보상 + γ × 다음 칸의 가치)' : 'Q ← Q + α × (받은 보상 + γ × 다음 칸의 가장 큰 Q − Q)'}</p>
-          <div class="lp-actions"><button class="btn" id="btnGStep">${vi ? '한 번 퍼뜨리기' : '한 판 해 보기'}</button><button class="btn" id="btnGRun">${gs.auto ? '⏸ 멈추기' : vi ? '▶ 길이 이어질 때까지' : '▶ 자동 학습'}</button><button class="btn ghost" id="btnGReset">↺ 처음부터 <kbd>R</kbd></button></div></div>
+          <div class="lp-actions"><button class="btn" id="btnGStep">${vi ? '한 번 퍼뜨리기' : '한 판 해 보기'}</button><button class="btn" id="btnGRun">${gs.auto ? '⏸ 멈추기' : vi ? '▶ 길이 이어질 때까지' : '▶ 자동 학습'}</button><button class="btn reset-btn ${(gs.sweeps || gs.episodes) && !gs.auto ? 'pulse' : ''}" id="btnGReset" title="배운 가치를 지우고 처음부터 다시 배워요">↺ 처음부터 <kbd>R</kbd></button></div></div>
         <div class="filter-card out-card" id="gridStats">${gridStatsHtml()}</div>
       </div>`;
     const change = (fn) => { fn(); play.grid = newGrid(st, play.grid); renderGridLeft(); renderGridRight(); };
@@ -2125,7 +2138,10 @@
     $('#btnGRun').onclick = () => { const g2 = play.grid; g2.auto = !g2.auto; g2.acc = 0; renderGridLeft(); };
     $('#btnGReset').onclick = gridReset;
   }
-  function gridRefresh() { drawGrid(); const s = $('#gridStats'); if (s) s.innerHTML = gridStatsHtml(); }
+  function gridRefresh() {
+    drawGrid(); const s = $('#gridStats'); if (s) s.innerHTML = gridStatsHtml();
+    const g = play.grid, b = $('#btnGReset'); if (b) b.classList.toggle('pulse', !!(g.sweeps || g.episodes) && !g.auto);
+  }
   function renderGridRight() {
     const st = play.cfg, box = $('#logicPanel');
     box.innerHTML = `
@@ -2244,6 +2260,8 @@
   }
   function showAnswer() {
     const st = play.cfg;
+    // 정답 보기를 쓴 뒤 깨면 별 3개를 준다(stageResult)
+    play.answered = true;
     if (st.type === 'reward') {
       play.rl.rw = Object.assign({}, st.solution.rw);
       play.rl.sigmaIdx = Math.max(0, SIGMAS.indexOf(st.solution.sigma));
@@ -2256,7 +2274,7 @@
       if (st.inits) play.train.initIdx = st.solution.init || 0;
       resetTrain();
       toast(st.goal && st.goal.type === 'epochsAtLeast'
-        ? '정답: 학습률 0.1로 자동 학습 → 잠깐 멈추고 1로 바꿔 이어서 → 다시 멈추고 3으로 바꿔 50번을 채우면 별 3개예요'
+        ? '정답: 학습률 0.1로 자동 학습을 돌려 50번을 채우세요. 학습률을 바꿔 가며 오차가 어떻게 되는지도 지켜보세요'
         : `정답: ${st.inits ? `시작 가중치 "${st.inits[st.solution.init || 0].label}", ` : ''}학습률 ${st.solution.lr}로 처음부터 다시 준비했어요. 자동 학습을 눌러 보세요`);
       return;
     }
@@ -2320,8 +2338,12 @@
     const res = sim.evalLogic(st, brain);
     const okN = res.rows.filter((r) => r.ok).length;
     const ins = st.inputs || ['inA', 'inB'], outs = st.outputs || ['out'];
-    const inName = { inA: 'A', inB: 'B', inC: 'C', inD: 'D' }, outName = { out: outs.length > 1 ? '출력 1' : '출력', out2: '출력 2', out3: '출력 3', out4: '출력 4' };
+    const inName = { inA: 'A', inB: 'B', inC: 'C', inD: 'D' }, outName = { out: '출력', out2: '출력 2', out3: '출력 3', out4: '출력 4' };
     const many = outs.length > 2 || !!st.latent;
+    // 출력이 두 개인 진리표는 출력마다 따로 채점 표시(✓/✗)를 붙인다
+    const per = !many && outs.length > 1;
+    const okAt = (r, k) => (r.ys[k] >= 0.5 ? 1 : 0) === r.row[ins.length + k];
+    const markAt = (r, k) => `<td class="mark ${okAt(r, k) ? 'm-ok' : 'm-bad'}">${okAt(r, k) ? '✓' : '✗'}</td>`;
     const codeCell = (r) => (st.latent ? `<td class="c-code">${codeOf(r, brain).map((v) => v.toFixed(2)).join(' · ') || '-'}</td>` : '');
     const codeHead = st.latent ? '<th class="c-code">코드</th>' : '';
     const bar = (y) => `<div class="ybar"><em>${y.toFixed(2)}</em><span class="track"><i style="width:${(Math.max(0, Math.min(1, y)) * 100).toFixed(0)}%"></i><span class="half"></span></span></div>`;
@@ -2329,7 +2351,7 @@
     const head = many
       ? `<th class="c-in">입력 ${ins.map((id) => inName[id]).join('')}</th><th class="c-t">목표</th><th>출력 ${outs.map((_, k) => k + 1).join(' ')}</th>${codeHead}<th></th>`
       : ins.map((id) => `<th class="c-in">${inName[id]}</th>`).join('') +
-        outs.map((id) => `<th class="c-t">${outs.length > 1 ? esc(outName[id]) + ' 목표' : '목표'}</th><th>${esc(outName[id])}</th>`).join('') + codeHead + '<th></th>';
+        outs.map((id) => `<th class="c-t">${outs.length > 1 ? esc(outName[id]) + ' 목표' : '목표'}</th><th>${esc(outName[id])}</th>${per ? '<th></th>' : ''}`).join('') + codeHead + (per ? '' : '<th></th>');
     const mini = (r) => `<div class="mbars">${outs.map((id, k) => { const y = r.ys[k], on = y >= 0.5 ? 1 : 0; return `<span class="mb ${on ? 'on' : ''} ${on !== r.row[ins.length + k] ? 'bad' : ''}" title="${esc(outName[id])} ${y.toFixed(2)}"><i style="height:${(Math.max(0, Math.min(1, y)) * 100).toFixed(0)}%"></i><em>${y.toFixed(1)}</em></span>`; }).join('')}</div>`;
     const rows = res.rows.map((r, i) => many ? `
       <tr data-row="${i}" class="${i === play.row ? 'sel' : ''} ${r.ok ? 'ok' : 'bad'}">
@@ -2340,8 +2362,8 @@
       </tr>` : `
       <tr data-row="${i}" class="${i === play.row ? 'sel' : ''} ${r.ok ? 'ok' : 'bad'}">
         ${ins.map((_, k) => `<td class="c-in">${r.row[k]}</td>`).join('')}
-        ${outs.map((_, k) => `<td class="c-t${st.free ? ' editable' : ''}" ${st.free ? `data-k="${k}" title="눌러서 목표 바꾸기"` : ''}><b>${r.row[ins.length + k]}</b></td><td>${bar(r.ys[k])}</td>`).join('')}${codeCell(r)}
-        <td class="mark">${r.ok ? '✓' : '✗'}</td>
+        ${outs.map((_, k) => `<td class="c-t${st.free ? ' editable' : ''}" ${st.free ? `data-k="${k}" title="눌러서 목표 바꾸기"` : ''}><b>${r.row[ins.length + k]}</b></td><td>${bar(r.ys[k])}</td>${per ? markAt(r, k) : ''}`).join('')}${codeCell(r)}
+        ${per ? '' : `<td class="mark">${r.ok ? '✓' : '✗'}</td>`}
       </tr>`).join('');
     const codeMap = st.latent ? `<div class="code-map"><h4>코드 지도 <span class="muted">입력마다 히든 뉴런(코드) 값으로 찍은 자리 · 잠재 공간</span></h4><canvas id="codeMap" aria-label="코드 지도"></canvas></div>` : '';
     let tail = '';
@@ -2467,11 +2489,18 @@
     }
     if (res.ok) audio.sfx.success(); else audio.sfx.fail();
     const insN = (play.cfg.inputs || ['inA', 'inB']).map((id) => ({ inA: 'A', inB: 'B', inC: 'C', inD: 'D' })[id]);
-    const bad = res.rows.filter((r) => !r.ok).map((r) => insN.map((n, k) => `${n}=${r.row[k]}`).join(', ')).join(' / ');
+    const fmtRow = (r) => insN.map((n, k) => `${n}=${r.row[k]}`).join(', ');
+    const bad = res.rows.filter((r) => !r.ok).map(fmtRow).join(' / ');
+    // 출력이 두 개면 출력마다 따로 센다
+    const outs = st.outputs || ['out'], per = outs.length > 1 && !st.latent;
+    const outNm = (k) => (k ? `출력 ${k + 1}` : '출력');
+    const okAt = (r, k) => (r.ys[k] >= 0.5 ? 1 : 0) === r.row[insN.length + k];
+    const perStats = () => outs.map((_, k) => `<div><div class="k">${outNm(k)} 맞은 줄</div><div class="v">${res.rows.filter((r) => okAt(r, k)).length}/${res.rows.length}</div></div>`).join('');
+    const perBad = outs.map((_, k) => { const b = res.rows.filter((r) => !okAt(r, k)).map(fmtRow).join(' / '); return b ? `${outNm(k)} 틀린 줄: ${b}` : `${outNm(k)}: 모두 맞음`; }).join(' · ');
     stageResult({ status: res.ok ? 'success' : 'fail' }, brain, (isNew) => `
-      <div><div class="k">맞은 줄</div><div class="v">${res.rows.filter((r) => r.ok).length}/${res.rows.length}</div></div>
+      ${per ? perStats() : `<div><div class="k">맞은 줄</div><div class="v">${res.rows.filter((r) => r.ok).length}/${res.rows.length}</div></div>`}
       <div><div class="k">시냅스</div><div class="v">${brain.synapses.length}${isNew.syn ? '<span class="new-badge">NEW</span>' : ''}</div></div>
-      <div><div class="k">히든 뉴런 사용</div><div class="v">${sim.usedHidden(brain)}</div></div>`, `틀린 줄: ${bad}`);
+      <div><div class="k">히든 뉴런 사용</div><div class="v">${sim.usedHidden(brain)}</div></div>`, per ? perBad : `틀린 줄: ${bad}`);
   }
   // 점 그래프 채점: 훈련 데이터(와 시험 데이터)의 정확도
   function checkPlot(st, brain, res) {
@@ -2979,6 +3008,14 @@
   document.addEventListener('keydown', (e) => {
     audio.unlock();
     if (e.key === 'Escape' && tour.active()) { tour.stop(true); return; }
+    // 설명만 하는 단계에서는 안내 글의 버튼 말고는 키도 막는다
+    if (tour.explaining()) {
+      const c = $('#tourRoot .tour-card');
+      if (c && c.contains(document.activeElement)) return;
+      e.preventDefault();
+      if (e.key === 'Enter') tour.next();
+      return;
+    }
     if (e.key === 'Escape') { if (modalOpen()) closeModal(); else if (view === 'play') editor.selectNone(); return; }
     if (modalOpen()) return;
     const tag = (e.target.tagName || '').toLowerCase();
@@ -3139,7 +3176,7 @@
       if (steps) stop(false);
       name = n; idx = 0;
       steps = opt && opt.explainOnly ? SCRIPTS[n].filter((st) => !st.wait) : SCRIPTS[n];
-      $('#tourRoot').innerHTML = '<div class="tour-dim"></div><div class="tour-spot"></div><div class="tour-card" role="dialog" aria-live="polite"></div>';
+      $('#tourRoot').innerHTML = '<div class="tour-block"></div><div class="tour-dim"></div><div class="tour-spot"></div><div class="tour-card" role="dialog" aria-live="polite"></div>';
       render();
     }
     function render() {
@@ -3158,7 +3195,9 @@
       const pv = card.querySelector('[data-t="prev"]');
       if (pv) pv.onclick = () => { idx--; render(); };
       const nx = card.querySelector('[data-t="next"]');
-      if (nx) nx.onclick = next;
+      if (nx) { nx.onclick = next; nx.focus({ preventScroll: true }); }
+      // 설명만 하는 단계: 안내 글 밖은 누를 수 없게 덮는다(직접 해 보는 단계는 열어 둔다)
+      $('#tourRoot .tour-block').style.display = st.wait ? 'none' : 'block';
       bringIntoView(st);
       place();
     }
@@ -3168,8 +3207,24 @@
       const r = t.getBoundingClientRect ? t.getBoundingClientRect() : t;
       return r.width || r.height ? r : null;
     }
-    // 비출 곳이 화면 밖이면 그곳이 보이도록 페이지를 굴린다(보상 실험처럼 세로로 긴 화면용)
+    // 비출 곳이 화면 밖이면 그곳이 보이도록 굴린다. 오른쪽 패널처럼 따로 굴러가는 칸 안에 있어도 찾아 간다
     function bringIntoView(st) {
+      const t = st.target && st.target();
+      if (t instanceof Element) {
+        const r = t.getBoundingClientRect();
+        if (!r.width && !r.height) return;
+        let top = 70, bottom = innerHeight - 20;
+        for (let p = t.parentElement; p && p !== document.body; p = p.parentElement) {
+          const ov = getComputedStyle(p).overflowY;
+          if (ov === 'auto' || ov === 'scroll' || ov === 'hidden') { const pr = p.getBoundingClientRect(); top = Math.max(top, pr.top); bottom = Math.min(bottom, pr.bottom); }
+        }
+        if (r.top >= top - 1 && r.bottom <= bottom + 1) return;
+        const tall = r.height > innerHeight - 110;
+        t.style.scrollMarginTop = '80px';
+        t.scrollIntoView({ block: tall ? 'start' : 'center', inline: 'nearest', behavior: 'smooth' });
+        setTimeout(() => { t.style.scrollMarginTop = ''; }, 800);
+        return;
+      }
       const r = rectOf(st);
       if (!r) return;
       const top = 70, bottom = innerHeight - 20;
@@ -3216,7 +3271,14 @@
       $('#tourRoot').innerHTML = '';
       if (skipped) toast('안내를 건너뛰었어요. 설정에서 다시 볼 수 있어요');
     }
-    return { start, tick, stop, active: () => !!steps };
+    // 설명 단계에서는 휠도 막는다(안내 글 안은 그대로)
+    document.addEventListener('wheel', (e) => {
+      if (!steps || steps[idx].wait) return;
+      const card = $('#tourRoot .tour-card');
+      if (card && card.contains(e.target)) return;
+      e.preventDefault(); e.stopPropagation();
+    }, { capture: true, passive: false });
+    return { start, tick, stop, next: () => { if (steps) next(); }, active: () => !!steps, explaining: () => !!steps && !steps[idx].wait };
   })();
 
   // ===================================================================

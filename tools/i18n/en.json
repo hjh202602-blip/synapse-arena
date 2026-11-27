@@ -2281,5 +2281,14 @@
 "한 번에 얼마나 고칠까 {0}": "How much to fix at once {0}",
 "학습 횟수 {0}": "Times learned {0}",
 "신뢰도": "confidence",
-"정답 확률 평균 {0}": "Average probability of the answer {0}"
+"정답 확률 평균 {0}": "Average probability of the answer {0}",
+"↻ 시계 방향 회전": "↻ turns clockwise",
+"↺ 반시계 방향 회전": "↺ turns counterclockwise",
+"공을 출발점(처음 가중치)으로 되돌려요": "Return the ball to the start (the initial weights)",
+"(↺ 처음 가중치로)": "(↺ Reset weights)",
+"배운 가치를 지우고 처음부터 다시 배워요": "Erase the learned values and learn again from the start",
+"{0} 맞은 줄": "{0} correct rows",
+"{0} 틀린 줄: {1}": "{0} wrong rows: {1}",
+"{0}: 모두 맞음": "{0}: all correct",
+"정답: 학습률 0.1로 자동 학습을 돌려 50번을 채우세요. 학습률을 바꿔 가며 오차가 어떻게 되는지도 지켜보세요": "Answer: run auto training with learning rate 0.1 until you reach 50 times. Also try changing the learning rate and watch how the error behaves"
 }

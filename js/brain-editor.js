@@ -673,6 +673,9 @@
         else {
           const fnName = brain.fn && brain.fn[id] ? ' · ' + SA.sim.FUNCS[brain.fn[id]].name : '';
           ctx.fillText(nameOf(id) + fnName, p.x, p.y + NR + 16);
+          // 바퀴 하나만 돌면 몸이 도는 방향(왼바퀴 → 오른쪽으로 돎 = 시계 방향)
+          const turn = { motorL: '↻ 시계 방향 회전', motorR: '↺ 반시계 방향 회전' }[id];
+          if (turn) { ctx.font = '600 11px ' + fontFamily(); ctx.fillStyle = hexA(color, 0.7); ctx.fillText(turn, p.x, p.y + NR + 31); }
         }
         // 출력 단자
         if (kindOf(id) !== 'motor') {
