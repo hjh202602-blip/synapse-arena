@@ -131,7 +131,7 @@ js/content.js       장·실험·정답·라이벌·연구실 아레나·개념 
 js/i18n.js          언어: 위치·브라우저 언어로 고르고 화면 글을 번역 사전으로 바꿈
 js/lang/            영어·일본어 번역 사전(tools/build_i18n.py가 만듦)
 js/audio.js         소리: 효과음 묶음 파일을 잘라 쓰고, 배경음은 화면마다 바꿔 끊김 없이 되풀이(파일이 없으면 Web Audio 합성음)
-music/              소리 원본: LMMS 프로젝트(lab·think·arena·sfx.mmp)와 만드는 스크립트(make_music.py, make_sfx.py)
+music/              소리 원본: LMMS 프로젝트(lab·think·arena·sfx.mmp), 만드는 스크립트(make_music.py, make_sfx.py, make_drums.py), 합성 드럼(drums/*.wav)
 assets/music/       LMMS로 렌더링한 배경음(ogg, 사파리 등은 mp3)
 assets/sfx/         LMMS로 렌더링한 효과음 묶음(효과음 11개가 3초 칸마다 하나씩)
 js/arena-view.js    아레나 그리기
@@ -176,13 +176,13 @@ node tests/qa-sim.js
 | 생각하는 시간 (D단조) | 96 BPM | 실험(퍼즐·학습), 연구실 |
 | 아레나 (E단조) | 124 BPM | 생명체 길찾기 실험, 보스 실험, 대결 |
 
-곡을 고치려면 `music/make_music.py`의 악보를 바꾸고 `python music/make_music.py`를 실행합니다(LMMS가 `C:\Program Files\LMMS`에 있어야 함). `.mmp` 파일은 LMMS에서 바로 열어 고칠 수도 있습니다. 곡 파일을 불러오지 못하면 예전의 합성 배경음이 대신 나옵니다.
+곡을 고치려면 `music/make_music.py`의 악보를 바꾸고 `python music/make_music.py`를 실행합니다(LMMS가 `C:\Program Files\LMMS`에 있어야 함). `.mmp` 파일은 LMMS에서 바로 열어 고칠 수도 있습니다(스크립트를 한 번 실행하면 합성 드럼이 LMMS 사용자 샘플 폴더의 `synapse-arena/` 아래로 복사되어, LMMS에서 열 때도 드럼이 들립니다). 곡 파일을 불러오지 못하면 예전의 합성 배경음이 대신 나옵니다.
 
 효과음(딸깍, 선 잇기·끊기, 실행, 먹이, 충전, 찔림, 성공, 실패, 새 개념 발견, 뉴런 발화 틱)은 `music/sfx.mmp` 한 프로젝트에 3초 칸마다 하나씩 들어 있고, `python music/make_sfx.py`로 다시 만듭니다. 사이트는 파일을 칸마다 잘라 앞뒤의 조용한 부분을 다듬어 쓰고, 뉴런 발화 틱은 재생 속도를 바꿔 음 높이를 바꿉니다. 효과음 파일을 못 불러오면 합성 효과음이 대신 나옵니다.
 
 ## 저작권
 
-그림은 캔버스 코드로 그렸습니다. 배경음과 효과음은 LMMS로 직접 만들었으며, 악기는 LMMS 내장 신시사이저(TripleOscillator)와 LMMS에 들어 있는 기본 드럼 샘플을 썼습니다. 외부 이미지·음원·폰트·라이브러리를 쓰지 않습니다.
+그림은 캔버스 코드로 그렸습니다. 배경음과 효과음은 LMMS로 직접 만들었으며, 악기는 LMMS 내장 신시사이저(TripleOscillator)를 쓰고, 드럼 9개(킥·스네어·하이햇·림·셰이커·심벌)는 `music/make_drums.py`로 처음부터 합성했습니다(`music/drums/*.wav`, 이 저장소의 MIT 라이선스). LMMS 기본 샘플은 출처·라이선스가 불분명해서 쓰지 않습니다. 외부 이미지·음원·폰트·라이브러리를 쓰지 않습니다.
 
 ## 라이선스
 

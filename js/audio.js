@@ -74,7 +74,7 @@
   }
   function loadTrack(name) {
     if (!loads[name]) {
-      loads[name] = fetch(`assets/music/${name}.${EXT}?v=1`)
+      loads[name] = fetch(`assets/music/${name}.${EXT}?v=2`)
         .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
         .then((b) => new Promise((ok, no) => ctx.decodeAudioData(b, ok, no)))
         .then((buf) => foldLoop(buf, (TRACK_BARS * 4 * 60) / TRACKS[name]))

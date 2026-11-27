@@ -8,13 +8,35 @@
   think 생각하는 시간   96 BPM  실험(퍼즐·학습)
   arena 아레나          124 BPM 생명체 실험·대결·보스 실험
 """
-import os, subprocess, sys
+import os, re, shutil, subprocess, sys
 from lmms_gen import TPB, BAR, key, env, osc, reverb, song_xml
+import make_drums
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', 'assets', 'music')
 LMMS = r'C:\Program Files\LMMS\lmms.exe'
 BARS = 16
+# 드럼은 LMMS 기본 샘플(출처·라이선스 불명) 대신 make_drums.py로 직접 합성한 소리를 쓴다.
+# LMMS 1.2는 상대 경로 샘플을 "사용자 샘플 폴더"에서 찾으므로, 렌더링 전에 그곳의 synapse-arena/ 아래로 복사한다.
+# (.mmp에는 synapse-arena/kick.wav 같은 상대 경로만 적어서, 내 컴퓨터 경로가 저장소에 들어가지 않게 한다.)
+DRUM_DIR = 'synapse-arena'
+
+
+def user_samples_dir():
+    rc = os.path.join(os.path.expanduser('~'), '.lmmsrc.xml')
+    work = os.path.join(os.path.expanduser('~'), 'Documents', 'lmms')
+    if os.path.exists(rc):
+        m = re.search(r'workingdir="([^"]+)"', open(rc, encoding='utf-8', errors='ignore').read())
+        if m: work = m.group(1)
+    return os.path.join(work, 'samples')
+
+
+def install_drums():
+    src = make_drums.main()
+    dst = os.path.join(user_samples_dir(), DRUM_DIR)
+    os.makedirs(dst, exist_ok=True)
+    for f in os.listdir(src):
+        if f.endswith('.wav'): shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
 
 
 def K(names):
@@ -99,7 +121,7 @@ def lead(name, vol):
 
 
 def sample(name, src, vol):
-    return dict(name=name, kind='sample', src='drums/' + src, vol=vol)
+    return dict(name=name, kind='sample', src=DRUM_DIR + '/' + src, vol=vol)
 
 
 # ---- 1. 연구실의 아침 (C장조, 84 BPM) ----------------------------------------
@@ -130,7 +152,7 @@ def song_lab():
     shaker = drum('..o...o...o...o.', BARS, vel=70, start=4)
     return dict(title='연구실의 아침', bpm=84, vol=62, tracks=[
         (pad('패드', 34), padn), (soft_bass('베이스', 46), bass), (bell('종소리 펼침화음', 30), arp),
-        (flute('피리 가락', 34), mel), (sample('셰이커', 'shaker01.ogg', 30), shaker)])
+        (flute('피리 가락', 34), mel), (sample('셰이커', 'shaker.wav', 30), shaker)])
 
 
 # ---- 2. 생각하는 시간 (D단조, 96 BPM) ----------------------------------------
@@ -170,8 +192,8 @@ def song_think():
     hat = drum('xoxoxoxoxoxoxoxo', BARS, vel=45, swing=3)
     return dict(title='생각하는 시간', bpm=96, vol=58, tracks=[
         (epiano('전자 피아노', 40), ep), (pluck_bass('베이스', 48), bass), (pluck('가락', 34), mel),
-        (sample('킥', 'kick_soft01.ogg', 70), kick), (sample('림', 'rim01.ogg', 42), rim),
-        (sample('하이햇', 'hihat_closed01.ogg', 30), hat)])
+        (sample('킥', 'kick_soft.wav', 70), kick), (sample('림', 'rim.wav', 42), rim),
+        (sample('하이햇', 'hat_closed.wav', 30), hat)])
 
 
 # ---- 3. 아레나 (E단조, 124 BPM) ---------------------------------------------
@@ -207,9 +229,9 @@ def song_arena():
     fill = [(at(15, 3 + j * 0.25), 12, 57, 50 + j * 12) for j in range(4)]
     return dict(title='아레나', bpm=124, vol=46, tracks=[
         (pad('패드', 22, cut=1400), padn), (pluck_bass('베이스', 52, cut=900), bass), (pluck('펼침화음', 26), arp),
-        (lead('가락', 34), mel), (sample('킥', 'kick01.ogg', 78), kick), (sample('스네어', 'snare02.ogg', 52), snare + fill),
-        (sample('하이햇', 'hihat_closed02.ogg', 34), hat), (sample('열린 하이햇', 'hihat_opened02.ogg', 26), ohat),
-        (sample('심벌', 'crash01.ogg', 30), crash)])
+        (lead('가락', 34), mel), (sample('킥', 'kick.wav', 78), kick), (sample('스네어', 'snare.wav', 52), snare + fill),
+        (sample('하이햇', 'hat_closed2.wav', 34), hat), (sample('열린 하이햇', 'hat_open.wav', 26), ohat),
+        (sample('심벌', 'crash.wav', 30), crash)])
 
 
 SONGS = {'lab': song_lab, 'think': song_think, 'arena': song_arena}
@@ -217,6 +239,7 @@ SONGS = {'lab': song_lab, 'think': song_think, 'arena': song_arena}
 
 def main(names):
     os.makedirs(OUT, exist_ok=True)
+    install_drums()
     for name in names:
         s = SONGS[name]()
         mmp = os.path.join(HERE, name + '.mmp')
